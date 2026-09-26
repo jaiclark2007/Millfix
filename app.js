@@ -20,7 +20,6 @@ let sb;
 let user = null;
 let issues = [];
 let departments = [];
-let profiles = [];
 let currentView = 'home';
 
 const app = document.getElementById('app');
@@ -37,14 +36,6 @@ function loadSupabase() {
 
 function statusLabel(s) {
   return (s || 'New').toUpperCase();
-}
-
-function getProfileName(profileId) {
-  if (!profileId) return 'Unknown';
-
-  const profile = profiles.find(p => p.id === profileId);
-
-  return profile?.full_name || 'Unknown';
 }
 
 function setActive(view) {
@@ -164,58 +155,23 @@ async function loadDepartments() {
   departments = data || [];
 }
 
-async function loadProfiles() {
-  const { data, error } = await sb
-    .from('profiles')
-    .select('id, full_name, role');
-
-  if (error) {
-    console.error('Could not load profiles:', error);
-    profiles = [];
-    return;
-  }
-
-  profiles = data || [];
-}
-
 function issueHtml(x) {
   const repairSection =
     x.status === 'Completed' && x.repair_notes
       ? `
         <div class="muted">
-          <strong>Repaired by:</strong>
-          ${getProfileName(x.repaired_by)}
-        </div>
-
-        <div class="muted">
-          <strong>Repair:</strong>
-          ${x.repair_notes}
+          <strong>Repair:</strong> ${x.repair_notes}
         </div>
 
         ${
           x.parts_used
-            ? `
-              <div class="muted">
-                <strong>Parts:</strong>
-                ${x.parts_used}
-              </div>
-            `
-            : `
-              <div class="muted">
-                <strong>Parts:</strong>
-                None
-              </div>
-            `
+            ? `<div class="muted"><strong>Parts:</strong> ${x.parts_used}</div>`
+            : ''
         }
 
         ${
           x.completed_at
-            ? `
-              <div class="muted">
-                <strong>Completed:</strong>
-                ${new Date(x.completed_at).toLocaleString()}
-              </div>
-            `
+            ? `<div class="muted"><strong>Completed:</strong> ${new Date(x.completed_at).toLocaleString()}</div>`
             : ''
         }
       `
@@ -223,19 +179,14 @@ function issueHtml(x) {
 
   return `
     <div class="issue">
-      <h3>
-        #${x.issue_number || ''} —
-        ${x.title || 'Equipment Issue'}
-      </h3>
+      <h3>#${x.issue_number || ''} — ${x.title || 'Equipment Issue'}</h3>
 
       <div>
         ${x.category || ''}
         <span class="pill">${x.priority || 'Normal'}</span>
       </div>
 
-      <div class="muted">
-        ${x.description || ''}
-      </div>
+      <div class="muted">${x.description || ''}</div>
 
       <div class="muted">
         ${statusLabel(x.status)} ·
@@ -249,11 +200,7 @@ function issueHtml(x) {
 
 async function home() {
   setActive('home');
-
-  await Promise.all([
-    loadIssues(),
-    loadProfiles()
-  ]);
+  await loadIssues();
 
   const open = issues.filter(x =>
     !['Completed', 'Closed', 'Cancelled'].includes(x.status)
@@ -262,11 +209,7 @@ async function home() {
   document.getElementById('view').innerHTML = `
     <div class="card">
       <div class="small">Open issues</div>
-
-      <div class="stat">
-        ${open.length}
-      </div>
-
+      <div class="stat">${open.length}</div>
       <p>Shared MillFix equipment issues.</p>
 
       <button class="btn primary" onclick="report()">
@@ -285,4 +228,340 @@ async function home() {
     </div>
 
     <div class="card">
-      <button class="btn secondary"
+      <button class="btn secondary" onclick="logout()">
+        Sign Out
+      </button>
+    </div>
+  `;
+}
+
+function report() {
+  setActive('report');
+
+  document.getElementById('view').innerHTML = `
+    <div class="card">
+      <h2>Report a Problem</h2>
+
+      <div class="field">
+        <label>Equipment</label>
+
+        <select id="eq">
+          ${equipment.map(e =>
+            `<option value="${e[1]}">${e[1]} — ${e[2]}</option>`
+          ).join('')}
+        </select>
+      </div>
+
+      <div class="field">
+        <label>Priority</label>
+
+        <select id="priority">
+          <option>Low</option>
+          <option selected>Normal</option>
+          <option>High</option>
+          <option>Critical</option>
+        </select>
+      </div>
+
+      <div class="field">
+        <label>Problem category</label>
+
+        <select id="category">
+          <option>Mechanical</option>
+          <option>Electrical</option>
+          <option>Hydraulic</option>
+          <option>Automation / Controls</option>
+          <option>Coolant / Process</option>
+          <option>Safety</option>
+          <option>Other</option>
+        </select>
+      </div>
+
+      <div class="field">
+        <label>Title</label>
+        <input id="title" placeholder="Short description">
+      </div>
+
+      <div class="field">
+        <label>Details</label>
+
+        <textarea
+          id="desc"
+          placeholder="Describe what is happening, when it happens, and anything you've observed."
+        ></textarea>
+      </div>
+
+      <button class="btn primary" onclick="submitIssue()">
+        Submit Issue
+      </button>
+    </div>
+  `;
+}
+
+async function submitIssue() {
+  const equipmentName = document.getElementById('eq').value;
+  const priority = document.getElementById('priority').value;
+  const category = document.getElementById('category').value;
+  const enteredTitle = document.getElementById('title').value.trim();
+  const description = document.getElementById('desc').value.trim();
+
+  if (!enteredTitle) {
+    alert('Please enter a short problem title.');
+    return;
+  }
+
+  const coldMill = departments.find(d => d.name === 'Cold Mill');
+
+  const { data, error } = await sb
+    .from('issues')
+    .insert({
+      reported_by: user.id,
+      department_id: coldMill ? coldMill.id : null,
+      category,
+      priority,
+      title: `${equipmentName} — ${enteredTitle}`,
+      description,
+      status: 'New'
+    })
+    .select()
+    .single();
+
+  if (error) {
+    alert('Issue could not be submitted: ' + error.message);
+    return;
+  }
+
+  document.getElementById('view').innerHTML = `
+    <div class="card">
+      <div class="notice">
+        <strong>Issue submitted.</strong><br>
+        MillFix issue #${data.issue_number} was saved to the shared database.
+      </div>
+
+      <button class="btn primary" onclick="home()">
+        Back to Home
+      </button>
+    </div>
+  `;
+}
+
+async function queue() {
+  setActive('maintenance');
+  await loadIssues();
+
+  const active = issues.filter(x =>
+    !['Completed', 'Closed', 'Cancelled'].includes(x.status)
+  );
+
+  document.getElementById('view').innerHTML = `
+    <div class="card">
+      <h2>Maintenance Queue</h2>
+
+      ${
+        active.length
+          ? active.map(x => `
+            <div class="issue">
+              <h3>#${x.issue_number} — ${x.title}</h3>
+
+              <div>
+                ${x.category}
+                <span class="pill">${x.priority}</span>
+              </div>
+
+              <div class="muted">
+                ${x.description || ''}
+              </div>
+
+              <div class="field">
+                <label>Status</label>
+
+                <select
+                  id="status-${x.id}"
+                  onchange="setStatus('${x.id}', this.value)"
+                >
+                  ${[
+                    'New',
+                    'Assigned',
+                    'In Progress',
+                    'Waiting for Parts',
+                    'Waiting for Vendor',
+                    'Completed',
+                    'Closed',
+                    'Cancelled'
+                  ].map(s =>
+                    `<option ${x.status === s ? 'selected' : ''}>${s}</option>`
+                  ).join('')}
+                </select>
+              </div>
+            </div>
+          `).join('')
+          : '<p class="muted">No active maintenance issues.</p>'
+      }
+    </div>
+  `;
+}
+
+async function setStatus(id, status) {
+  const issue = issues.find(x => x.id === id);
+
+  if (!issue) {
+    alert('MillFix could not find this issue.');
+    await queue();
+    return;
+  }
+
+  if (status === 'Completed') {
+    showRepairForm(issue);
+    return;
+  }
+
+  const { error } = await sb
+    .from('issues')
+    .update({
+      status,
+      updated_at: new Date().toISOString()
+    })
+    .eq('id', id);
+
+  if (error) {
+    alert('Status could not be updated: ' + error.message);
+    await queue();
+    return;
+  }
+
+  await queue();
+}
+
+function showRepairForm(issue) {
+  document.getElementById('view').innerHTML = `
+    <div class="card">
+      <h2>Complete Repair</h2>
+
+      <div class="notice">
+        <strong>Issue #${issue.issue_number}</strong><br>
+        ${issue.title}
+      </div>
+
+      <div class="field">
+        <label>Repair / work performed</label>
+
+        <textarea
+          id="repairNotes"
+          placeholder="Describe what was repaired, adjusted, replaced, cleaned, reset, tested, etc."
+        ></textarea>
+      </div>
+
+      <div class="field">
+        <label>Parts used</label>
+
+        <textarea
+          id="partsUsed"
+          placeholder="Enter parts used, or leave blank if none."
+        ></textarea>
+      </div>
+
+      <button
+        class="btn primary"
+        onclick="completeRepair('${issue.id}')"
+      >
+        Complete Repair
+      </button>
+
+      <button
+        class="btn secondary"
+        onclick="queue()"
+      >
+        Cancel
+      </button>
+    </div>
+  `;
+}
+
+async function completeRepair(id) {
+  const repairNotes =
+    document.getElementById('repairNotes').value.trim();
+
+  const partsUsed =
+    document.getElementById('partsUsed').value.trim();
+
+  if (!repairNotes) {
+    alert('Please describe the repair or work performed.');
+    return;
+  }
+
+  const completedTime = new Date().toISOString();
+
+  const { error } = await sb
+    .from('issues')
+    .update({
+      status: 'Completed',
+      repaired_by: user.id,
+      repair_notes: repairNotes,
+      parts_used: partsUsed || null,
+      completed_at: completedTime,
+      updated_at: completedTime
+    })
+    .eq('id', id);
+
+  if (error) {
+    alert('Repair could not be completed: ' + error.message);
+    return;
+  }
+
+  alert('Repair completed and recorded.');
+
+  await home();
+}
+
+async function startApp() {
+  await loadDepartments();
+  shell();
+  await home();
+}
+
+async function init() {
+  try {
+    await loadSupabase();
+
+    sb = window.supabase.createClient(
+      SUPABASE_URL,
+      SUPABASE_KEY
+    );
+
+    const { data } = await sb.auth.getSession();
+
+    if (data.session) {
+      user = data.session.user;
+      await startApp();
+    } else {
+      loginScreen();
+    }
+  } catch (e) {
+    app.innerHTML = `
+      <div class="card">
+        <h2>MillFix connection error</h2>
+        <p>${e.message}</p>
+      </div>
+    `;
+  }
+}
+
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () =>
+    navigator.serviceWorker
+      .register('sw.js')
+      .catch(() => {})
+  );
+}
+
+window.login = login;
+window.logout = logout;
+window.home = home;
+window.report = report;
+window.queue = queue;
+window.submitIssue = submitIssue;
+window.setStatus = setStatus;
+window.showRepairForm = showRepairForm;
+window.completeRepair = completeRepair;
+
+init();
