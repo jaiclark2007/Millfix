@@ -40,12 +40,14 @@ function statusLabel(s) {
 
 function setActive(view) {
   currentView = view;
+
   document.querySelectorAll('.tabs button').forEach(b => {
     b.classList.remove('primary');
     b.classList.add('secondary');
   });
 
   const btn = document.getElementById('tab-' + view);
+
   if (btn) {
     btn.classList.remove('secondary');
     btn.classList.add('primary');
@@ -71,7 +73,7 @@ function shell() {
   `;
 }
 
-function loginScreen(message='') {
+function loginScreen(message = '') {
   app.innerHTML = `
     <header>
       <h1>MillFix</h1>
@@ -140,26 +142,58 @@ async function loadIssues() {
 }
 
 async function loadDepartments() {
-  const { data } = await sb
+  const { data, error } = await sb
     .from('departments')
     .select('*');
+
+  if (error) {
+    console.error(error);
+    departments = [];
+    return;
+  }
 
   departments = data || [];
 }
 
 function issueHtml(x) {
+  const repairSection =
+    x.status === 'Completed' && x.repair_notes
+      ? `
+        <div class="muted">
+          <strong>Repair:</strong> ${x.repair_notes}
+        </div>
+
+        ${
+          x.parts_used
+            ? `<div class="muted"><strong>Parts:</strong> ${x.parts_used}</div>`
+            : ''
+        }
+
+        ${
+          x.completed_at
+            ? `<div class="muted"><strong>Completed:</strong> ${new Date(x.completed_at).toLocaleString()}</div>`
+            : ''
+        }
+      `
+      : '';
+
   return `
     <div class="issue">
-      <h3>${x.title || 'Equipment Issue'}</h3>
+      <h3>#${x.issue_number || ''} — ${x.title || 'Equipment Issue'}</h3>
+
       <div>
         ${x.category || ''}
         <span class="pill">${x.priority || 'Normal'}</span>
       </div>
+
       <div class="muted">${x.description || ''}</div>
+
       <div class="muted">
         ${statusLabel(x.status)} ·
         ${new Date(x.created_at).toLocaleString()}
       </div>
+
+      ${repairSection}
     </div>
   `;
 }
@@ -169,7 +203,7 @@ async function home() {
   await loadIssues();
 
   const open = issues.filter(x =>
-    !['Completed','Closed','Cancelled'].includes(x.status)
+    !['Completed', 'Closed', 'Cancelled'].includes(x.status)
   );
 
   document.getElementById('view').innerHTML = `
@@ -177,20 +211,26 @@ async function home() {
       <div class="small">Open issues</div>
       <div class="stat">${open.length}</div>
       <p>Shared MillFix equipment issues.</p>
-      <button class="btn primary" onclick="report()">+ Report a Problem</button>
+
+      <button class="btn primary" onclick="report()">
+        + Report a Problem
+      </button>
     </div>
 
     <div class="card">
       <h2>Recent Issues</h2>
+
       ${
         issues.length
-          ? issues.slice(0,5).map(issueHtml).join('')
+          ? issues.slice(0, 5).map(issueHtml).join('')
           : '<p class="muted">No issues reported yet.</p>'
       }
     </div>
 
     <div class="card">
-      <button class="btn secondary" onclick="logout()">Sign Out</button>
+      <button class="btn secondary" onclick="logout()">
+        Sign Out
+      </button>
     </div>
   `;
 }
@@ -204,6 +244,7 @@ function report() {
 
       <div class="field">
         <label>Equipment</label>
+
         <select id="eq">
           ${equipment.map(e =>
             `<option value="${e[1]}">${e[1]} — ${e[2]}</option>`
@@ -213,6 +254,7 @@ function report() {
 
       <div class="field">
         <label>Priority</label>
+
         <select id="priority">
           <option>Low</option>
           <option selected>Normal</option>
@@ -223,6 +265,7 @@ function report() {
 
       <div class="field">
         <label>Problem category</label>
+
         <select id="category">
           <option>Mechanical</option>
           <option>Electrical</option>
@@ -241,10 +284,16 @@ function report() {
 
       <div class="field">
         <label>Details</label>
-        <textarea id="desc" placeholder="Describe what is happening, when it happens, and anything you've observed."></textarea>
+
+        <textarea
+          id="desc"
+          placeholder="Describe what is happening, when it happens, and anything you've observed."
+        ></textarea>
       </div>
 
-      <button class="btn primary" onclick="submitIssue()">Submit Issue</button>
+      <button class="btn primary" onclick="submitIssue()">
+        Submit Issue
+      </button>
     </div>
   `;
 }
@@ -289,7 +338,9 @@ async function submitIssue() {
         MillFix issue #${data.issue_number} was saved to the shared database.
       </div>
 
-      <button class="btn primary" onclick="home()">Back to Home</button>
+      <button class="btn primary" onclick="home()">
+        Back to Home
+      </button>
     </div>
   `;
 }
@@ -299,7 +350,7 @@ async function queue() {
   await loadIssues();
 
   const active = issues.filter(x =>
-    !['Completed','Closed','Cancelled'].includes(x.status)
+    !['Completed', 'Closed', 'Cancelled'].includes(x.status)
   );
 
   document.getElementById('view').innerHTML = `
@@ -317,20 +368,31 @@ async function queue() {
                 <span class="pill">${x.priority}</span>
               </div>
 
-              <select onchange="setStatus('${x.id}',this.value)">
-                ${[
-                  'New',
-                  'Assigned',
-                  'In Progress',
-                  'Waiting for Parts',
-                  'Waiting for Vendor',
-                  'Completed',
-                  'Closed',
-                  'Cancelled'
-                ].map(s =>
-                  `<option ${x.status === s ? 'selected' : ''}>${s}</option>`
-                ).join('')}
-              </select>
+              <div class="muted">
+                ${x.description || ''}
+              </div>
+
+              <div class="field">
+                <label>Status</label>
+
+                <select
+                  id="status-${x.id}"
+                  onchange="setStatus('${x.id}', this.value)"
+                >
+                  ${[
+                    'New',
+                    'Assigned',
+                    'In Progress',
+                    'Waiting for Parts',
+                    'Waiting for Vendor',
+                    'Completed',
+                    'Closed',
+                    'Cancelled'
+                  ].map(s =>
+                    `<option ${x.status === s ? 'selected' : ''}>${s}</option>`
+                  ).join('')}
+                </select>
+              </div>
             </div>
           `).join('')
           : '<p class="muted">No active maintenance issues.</p>'
@@ -340,6 +402,19 @@ async function queue() {
 }
 
 async function setStatus(id, status) {
+  const issue = issues.find(x => x.id === id);
+
+  if (!issue) {
+    alert('MillFix could not find this issue.');
+    await queue();
+    return;
+  }
+
+  if (status === 'Completed') {
+    showRepairForm(issue);
+    return;
+  }
+
   const { error } = await sb
     .from('issues')
     .update({
@@ -350,10 +425,92 @@ async function setStatus(id, status) {
 
   if (error) {
     alert('Status could not be updated: ' + error.message);
+    await queue();
     return;
   }
 
   await queue();
+}
+
+function showRepairForm(issue) {
+  document.getElementById('view').innerHTML = `
+    <div class="card">
+      <h2>Complete Repair</h2>
+
+      <div class="notice">
+        <strong>Issue #${issue.issue_number}</strong><br>
+        ${issue.title}
+      </div>
+
+      <div class="field">
+        <label>Repair / work performed</label>
+
+        <textarea
+          id="repairNotes"
+          placeholder="Describe what was repaired, adjusted, replaced, cleaned, reset, tested, etc."
+        ></textarea>
+      </div>
+
+      <div class="field">
+        <label>Parts used</label>
+
+        <textarea
+          id="partsUsed"
+          placeholder="Enter parts used, or leave blank if none."
+        ></textarea>
+      </div>
+
+      <button
+        class="btn primary"
+        onclick="completeRepair('${issue.id}')"
+      >
+        Complete Repair
+      </button>
+
+      <button
+        class="btn secondary"
+        onclick="queue()"
+      >
+        Cancel
+      </button>
+    </div>
+  `;
+}
+
+async function completeRepair(id) {
+  const repairNotes =
+    document.getElementById('repairNotes').value.trim();
+
+  const partsUsed =
+    document.getElementById('partsUsed').value.trim();
+
+  if (!repairNotes) {
+    alert('Please describe the repair or work performed.');
+    return;
+  }
+
+  const completedTime = new Date().toISOString();
+
+  const { error } = await sb
+    .from('issues')
+    .update({
+      status: 'Completed',
+      repaired_by: user.id,
+      repair_notes: repairNotes,
+      parts_used: partsUsed || null,
+      completed_at: completedTime,
+      updated_at: completedTime
+    })
+    .eq('id', id);
+
+  if (error) {
+    alert('Repair could not be completed: ' + error.message);
+    return;
+  }
+
+  alert('Repair completed and recorded.');
+
+  await home();
 }
 
 async function startApp() {
@@ -391,7 +548,9 @@ async function init() {
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () =>
-    navigator.serviceWorker.register('sw.js').catch(() => {})
+    navigator.serviceWorker
+      .register('sw.js')
+      .catch(() => {})
   );
 }
 
@@ -402,5 +561,7 @@ window.report = report;
 window.queue = queue;
 window.submitIssue = submitIssue;
 window.setStatus = setStatus;
+window.showRepairForm = showRepairForm;
+window.completeRepair = completeRepair;
 
 init();
