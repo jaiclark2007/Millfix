@@ -19,7 +19,8 @@ const equipment = [
 let sb;
 let user = null;
 let issues = [];
-let departments = [];
+let departments = []; 
+let profiles = [];
 let currentView = 'home';
 
 const app = document.getElementById('app');
@@ -154,11 +155,30 @@ async function loadDepartments() {
 
   departments = data || [];
 }
+async function loadProfiles() {
+  const { data, error } = await sb
+    .from('profiles')
+    .select('id, full_name, role');
 
+  if (error) {
+    console.error(error);
+    profiles = [];
+    return;
+  }
+
+  profiles = data || [];
+}
+
+function getProfileName(id) {
+  const profile = profiles.find(p => p.id === id);
+  return profile ? profile.full_name : 'Unknown';
+}
 function issueHtml(x) {
   const repairSection =
     x.status === 'Completed' && x.repair_notes
-      ? `
+      ? ` <div class="muted">
+  <strong>Repaired by:</strong> ${getProfileName(x.repaired_by)}
+</div>
         <div class="muted">
           <strong>Repair:</strong> ${x.repair_notes}
         </div>
@@ -515,6 +535,7 @@ async function completeRepair(id) {
 
 async function startApp() {
   await loadDepartments();
+  await loadProfiles();
   shell();
   await home();
 }
