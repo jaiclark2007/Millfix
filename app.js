@@ -1,5 +1,5 @@
 const SUPABASE_URL = 'https://dchwwkbyyrhruvvyvmjd.supabase.co';
-const SUPABASE_KEY = 'sb_publishable_r5D1x4z7VGAwj0EiRbNM0A_pgbHk9gC;
+const SUPABASE_KEY = 'sb_publishable_r5D1x4z7VGAwj0EiRbNM0A_pgbHk9gC';
 
 const equipment = [
   ['CM-PAY-001','Payoff Reel','Entry'],
