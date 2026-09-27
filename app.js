@@ -391,11 +391,22 @@ async function submitIssue() {
   }
 
   const coldMill = departments.find(d => d.name === 'Cold Mill');
+const { data: equipmentRecord, error: equipmentError } = await sb
+  .from('equipment')
+  .select('id')
+  .eq('name', equipmentName)
+  .eq('active', true)
+  .maybeSingle();
 
+if (equipmentError || !equipmentRecord) {
+  alert('Equipment could not be found in the MillFix database.');
+  return;
+}
   const { data, error } = await sb
     .from('issues')
     .insert({
       reported_by: user.id,
+      equipment_id: equipmentRecord.id,
       department_id: coldMill ? coldMill.id : null,
       category,
       priority,
