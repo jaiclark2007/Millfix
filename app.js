@@ -214,6 +214,66 @@ function issueHtml(x) {
       </div>
 
       ${repairSection}
+      
+    <button class="btn secondary" onclick="viewHistory('${x.id}')">
+    View History
+    </button>
+    
+    </div>
+  `;
+}
+async function viewHistory(issueId) {
+  const issue = issues.find(x => x.id === issueId);
+
+  const { data, error } = await sb
+    .from('issue_history')
+    .select('*')
+    .eq('issue_id', issueId)
+    .order('created_at', { ascending: true });
+
+  if (error) {
+    alert('History could not be loaded: ' + error.message);
+    return;
+  }
+
+  const history = data || [];
+
+  document.getElementById('view').innerHTML = `
+    <div class="card">
+      <h2>Issue History</h2>
+
+      <h3>
+        #${issue ? issue.issue_number : ''} —
+        ${issue ? issue.title : 'Equipment Issue'}
+      </h3>
+
+      ${
+        history.length
+          ? history.map(h => `
+              <div class="issue">
+                <strong>${h.old_status || 'New'} → ${h.new_status}</strong>
+
+                <div class="muted">
+                  Changed by: ${getProfileName(h.changed_by)}
+                </div>
+
+                <div class="muted">
+                  ${new Date(h.created_at).toLocaleString()}
+                </div>
+
+                ${
+                  h.note
+                    ? `<div class="muted">Note: ${h.note}</div>`
+                    : ''
+                }
+              </div>
+            `).join('')
+          : '<p class="muted">No status history recorded for this issue.</p>'
+      }
+
+      <button class="btn secondary" onclick="home()">
+        Back to Home
+      </button>
     </div>
   `;
 }
