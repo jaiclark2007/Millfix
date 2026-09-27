@@ -215,7 +215,7 @@ function issueHtml(x) {
 
       ${repairSection}
       
-    <button class="btn secondary" onclick="viewHistory('${x.id}')">
+    <button class="btn" onclick="viewHistory('${x.id}')">
     View History
     </button>
     
@@ -271,7 +271,7 @@ async function viewHistory(issueId) {
           : '<p class="muted">No status history recorded for this issue.</p>'
       }
 
-      <button class="btn secondary" onclick="home()">
+      <button class="btn" onclick="home()">
         Back to Home
       </button>
     </div>
