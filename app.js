@@ -333,6 +333,15 @@ function report() {
       </div>
 
       <div class="field">
+  <label>Component / Part</label>
+  <input
+    id="component"
+    type="text"
+    placeholder="Example: Work Roll Bearing, Mandrel, Motor"
+  />
+</div>
+
+      <div class="field">
         <label>Priority</label>
 
         <select id="priority">
@@ -380,6 +389,7 @@ function report() {
 
 async function submitIssue() {
   const equipmentName = document.getElementById('eq').value;
+  const componentName = document.getElementById('component').value.trim();
   const priority = document.getElementById('priority').value;
   const category = document.getElementById('category').value;
   const enteredTitle = document.getElementById('title').value.trim();
@@ -407,6 +417,7 @@ if (equipmentError || !equipmentRecord) {
     .insert({
       reported_by: user.id,
       equipment_id: equipmentRecord.id,
+      component_name: componentName,
       department_id: coldMill ? coldMill.id : null,
       category,
       priority,
