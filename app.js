@@ -326,6 +326,7 @@ function report() {
         <label>Equipment</label>
 
         <select id="eq">
+        onchange="loadComponentSuggestions()">
           ${equipment.map(e =>
             `<option value="${e[1]}">${e[1]} — ${e[2]}</option>`
           ).join('')}
@@ -338,7 +339,9 @@ function report() {
     id="component"
     type="text"
     placeholder="Example: Work Roll Bearing, Mandrel, Motor"
+ list="componentSuggestions"
   />
+<datalist id="componentSuggestions"></datalist>
 </div>
 
       <div class="field">
@@ -385,6 +388,32 @@ function report() {
       </button>
     </div>
   `;
+}
+async function loadComponentSuggestions() {
+  const equipmentName = document.getElementById('eq').value;
+  const list = document.getElementById('componentSuggestions');
+
+  list.innerHTML = '';
+
+  const { data: equipmentRecord, error: equipmentError } = await supabase
+    .from('equipment')
+    .select('id')
+    .eq('name', equipmentName)
+    .single();
+
+  if (equipmentError || !equipmentRecord) return;
+
+  const { data: components, error } = await supabase
+    .from('equipment_components')
+    .select('component_name')
+    .eq('equipment_id', equipmentRecord.id)
+    .order('component_name');
+
+  if (error || !components) return;
+
+  list.innerHTML = components
+    .map(c => `<option value="${c.component_name}"></option>`)
+    .join('');
 }
 
 async function submitIssue() {
