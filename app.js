@@ -451,7 +451,6 @@ function showComponentSuggestions() {
     box.appendChild(item);
   });
 }
-}
 
 async function submitIssue() {
   const equipmentName = document.getElementById('eq').value;
