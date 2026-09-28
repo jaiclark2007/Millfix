@@ -390,6 +390,8 @@ function report() {
       </button>
     </div>
   `;
+
+  loadComponentSuggestions();
 }
 let learnedComponents = [];
 
