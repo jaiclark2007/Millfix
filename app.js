@@ -324,9 +324,9 @@ async function report() {
 
       <div class="field">
         <label>Equipment</label>
-
-        <select id="eq">
-        onchange="loadComponentSuggestions()">
+        <select id="eq"
+       
+       onchange="loadComponentSuggestions()">
           ${equipment.map(e =>
             `<option value="${e[1]}">${e[1]} — ${e[2]}</option>`
           ).join('')}
