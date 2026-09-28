@@ -315,7 +315,7 @@ async function home() {
   `;
 }
 
-function report() {
+async function report() {
   setActive('report');
 
   document.getElementById('view').innerHTML = `
@@ -391,7 +391,7 @@ function report() {
     </div>
   `;
 
-  loadComponentSuggestions();
+ await loadComponentSuggestions();
 }
 let learnedComponents = [];
 
