@@ -335,13 +335,15 @@ function report() {
 
       <div class="field">
   <label>Component / Part</label>
-  <input
-    id="component"
-    type="text"
-    placeholder="Example: Work Roll Bearing, Mandrel, Motor"
- list="componentSuggestions"
-  />
-<datalist id="componentSuggestions"></datalist>
+<input
+  id="component"
+  type="text"
+  placeholder="Example: Work Roll Bearing, Mandrel, Motor"
+  autocomplete="off"
+  oninput="showComponentSuggestions()"
+/>
+
+<div id="componentSuggestions"></div>
 </div>
 
       <div class="field">
@@ -389,11 +391,14 @@ function report() {
     </div>
   `;
 }
+let learnedComponents = [];
+
 async function loadComponentSuggestions() {
   const equipmentName = document.getElementById('eq').value;
-  const list = document.getElementById('componentSuggestions');
+  const box = document.getElementById('componentSuggestions');
 
-  list.innerHTML = '';
+  learnedComponents = [];
+  box.innerHTML = '';
 
   const { data: equipmentRecord, error: equipmentError } = await supabase
     .from('equipment')
@@ -411,9 +416,41 @@ async function loadComponentSuggestions() {
 
   if (error || !components) return;
 
-  list.innerHTML = components
-    .map(c => `<option value="${c.component_name}"></option>`)
-    .join('');
+  learnedComponents = components.map(c => c.component_name);
+}
+
+function showComponentSuggestions() {
+  const input = document.getElementById('component');
+  const box = document.getElementById('componentSuggestions');
+  const typed = input.value.trim().toLowerCase();
+
+  box.innerHTML = '';
+
+  if (!typed) return;
+
+  const matches = learnedComponents.filter(name =>
+    name.toLowerCase().includes(typed)
+  );
+
+  matches.forEach(name => {
+    const item = document.createElement('div');
+
+    item.textContent = name;
+    item.style.padding = '12px';
+    item.style.border = '1px solid #ccc';
+    item.style.borderRadius = '8px';
+    item.style.marginTop = '6px';
+    item.style.cursor = 'pointer';
+    item.style.background = 'white';
+
+    item.onclick = () => {
+      input.value = name;
+      box.innerHTML = '';
+    };
+
+    box.appendChild(item);
+  });
+}
 }
 
 async function submitIssue() {
