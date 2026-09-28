@@ -402,7 +402,7 @@ async function loadComponentSuggestions() {
   learnedComponents = [];
   box.innerHTML = '';
 
-  const { data: equipmentRecord, error: equipmentError } = await supabase
+  const { data: equipmentRecord, error: equipmentError } = await sb
     .from('equipment')
     .select('id')
     .eq('name', equipmentName)
@@ -410,7 +410,7 @@ async function loadComponentSuggestions() {
 
   if (equipmentError || !equipmentRecord) return;
 
-  const { data: components, error } = await supabase
+  const { data: components, error } = await sb
     .from('equipment_components')
     .select('component_name')
     .eq('equipment_id', equipmentRecord.id)
