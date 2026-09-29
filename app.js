@@ -694,7 +694,7 @@ function showRepairForm(issue) {
 }
 async function assignIssueByName(id, name) {
   const cleanName = name.trim();
-
+  
   if (!cleanName) {
     const { error } = await sb
       .from('issues')
