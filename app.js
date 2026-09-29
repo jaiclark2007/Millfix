@@ -597,17 +597,16 @@ if (profilesError) {
   <input
     type="text"
     id="assigned-${x.id}"
-    list="maintenance-${x.id}"
     placeholder="Start typing a name..."
     value="${(profiles || []).find(p => p.id === x.assigned_to)?.full_name || ''}"
-    onchange="assignIssueByName('${x.id}', this.value)"
+    autocomplete="off"
+    oninput="showMaintenanceMatches('${x.id}', this.value)"
   >
 
-  <datalist id="maintenance-${x.id}">
-    ${(profiles || []).map(p =>
-      `<option value="${p.full_name || ''}"></option>`
-    ).join('')}
-  </datalist>
+  <div
+    id="matches-${x.id}"
+    class="maintenance-matches"
+  ></div>
 </div>
             </div>
           `).join('')
@@ -692,6 +691,52 @@ function showRepairForm(issue) {
     </div>
   `;
 }
+function showMaintenanceMatches(id, searchText) {
+  const box = document.getElementById(`matches-${id}`);
+  if (!box) return;
+
+  const search = searchText.trim().toLowerCase();
+
+  if (!search) {
+    box.innerHTML = '';
+    return;
+  }
+
+  const matches = (profiles || [])
+    .filter(p =>
+      (p.full_name || '').toLowerCase().includes(search)
+    )
+    .slice(0, 8);
+
+  if (!matches.length) {
+    box.innerHTML = '';
+    return;
+  }
+
+  box.innerHTML = matches.map(p => `
+    <button
+      type="button"
+      class="maintenance-match"
+      onclick="selectMaintenanceMatch('${id}', '${p.id}')"
+    >
+      ${p.full_name || 'Unnamed'}
+    </button>
+  `).join('');
+}
+
+function selectMaintenanceMatch(id, profileId) {
+  const profile = (profiles || []).find(p => p.id === profileId);
+  if (!profile) return;
+
+  const input = document.getElementById(`assigned-${id}`);
+  const box = document.getElementById(`matches-${id}`);
+
+  if (input) input.value = profile.full_name || '';
+  if (box) box.innerHTML = '';
+
+  assignIssue(id, profile.id);
+}
+
 async function assignIssueByName(id, name) {
   const cleanName = name.trim();
   
