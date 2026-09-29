@@ -536,6 +536,16 @@ async function queue() {
   setActive('maintenance');
   await loadIssues();
 
+  const { data: profiles, error: profilesError } = await sb
+  .from('profiles')
+  .select('id, full_name, role, department_id')
+  .order('full_name');
+
+if (profilesError) {
+  console.error('Could not load profiles:', profilesError);
+}
+
+  
   const active = issues.filter(x =>
     !['Completed', 'Closed', 'Cancelled'].includes(x.status)
   );
@@ -580,6 +590,20 @@ async function queue() {
                   ).join('')}
                 </select>
               </div>
+             
+              <div class="field">
+  <label>Assigned To</label>
+
+  <select
+    id="assigned-${x.id}"
+    onchange="assignIssue('${x.id}', this.value)"
+  >
+    <option value="">Unassigned</option>
+    ${(profiles || []).map(p =>
+      `<option value="${p.id}" ${x.assigned_to === p.id ? 'selected' : ''}>${p.full_name || 'Unnamed user'}</option>`
+    ).join('')}
+  </select>
+</div>
             </div>
           `).join('')
           : '<p class="muted">No active maintenance issues.</p>'
@@ -618,7 +642,23 @@ async function setStatus(id, status) {
 
   await queue();
 }
+async function assignIssue(id, assignedTo) {
+  const { error } = await sb
+    .from('issues')
+    .update({
+      assigned_to: assignedTo || null,
+      updated_at: new Date().toISOString()
+    })
+    .eq('id', id);
 
+  if (error) {
+    alert('Assignment could not be updated: ' + error.message);
+    await queue();
+    return;
+  }
+
+  await queue();
+}
 function showRepairForm(issue) {
   document.getElementById('view').innerHTML = `
     <div class="card">
