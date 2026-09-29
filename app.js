@@ -499,7 +499,25 @@ if (equipmentError || !equipmentRecord) {
     alert('Issue could not be submitted: ' + error.message);
     return;
   }
+// Learn new component/part for this equipment
+if (componentName) {
+  const alreadyKnown = learnedComponents.some(
+    name => name.toLowerCase() === componentName.toLowerCase()
+  );
 
+  if (!alreadyKnown) {
+    const { error: learnError } = await sb
+      .from('equipment_components')
+      .insert({
+        equipment_id: equipmentRecord.id,
+        component_name: componentName
+      });
+
+    if (!learnError) {
+      learnedComponents.push(componentName);
+    }
+  }
+}  
   document.getElementById('view').innerHTML = `
     <div class="card">
       <div class="notice">
