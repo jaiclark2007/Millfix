@@ -594,15 +594,20 @@ if (profilesError) {
               <div class="field">
   <label>Assigned To</label>
 
-  <select
+  <input
+    type="text"
     id="assigned-${x.id}"
-    onchange="assignIssue('${x.id}', this.value)"
+    list="maintenance-${x.id}"
+    placeholder="Start typing a name..."
+    value="${(profiles || []).find(p => p.id === x.assigned_to)?.full_name || ''}"
+    onchange="assignIssueByName('${x.id}', this.value)"
   >
-    <option value="">Unassigned</option>
+
+  <datalist id="maintenance-${x.id}">
     ${(profiles || []).map(p =>
-      `<option value="${p.id}" ${x.assigned_to === p.id ? 'selected' : ''}>${p.full_name || 'Unnamed user'}</option>`
+      `<option value="${p.full_name || ''}"></option>`
     ).join('')}
-  </select>
+  </datalist>
 </div>
             </div>
           `).join('')
@@ -642,23 +647,7 @@ async function setStatus(id, status) {
 
   await queue();
 }
-async function assignIssue(id, assignedTo) {
-  const { error } = await sb
-    .from('issues')
-    .update({
-      assigned_to: assignedTo || null,
-      updated_at: new Date().toISOString()
-    })
-    .eq('id', id);
 
-  if (error) {
-    alert('Assignment could not be updated: ' + error.message);
-    await queue();
-    return;
-  }
-
-  await queue();
-}
 function showRepairForm(issue) {
   document.getElementById('view').innerHTML = `
     <div class="card">
@@ -703,7 +692,52 @@ function showRepairForm(issue) {
     </div>
   `;
 }
+async function assignIssueByName(id, name) {
+  const cleanName = name.trim();
 
+  if (!cleanName) {
+    const { error } = await sb
+      .from('issues')
+      .update({
+        assigned_to: null,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', id);
+
+    if (error) {
+      alert('Assignment could not be updated: ' + error.message);
+    }
+
+    await queue();
+    return;
+  }
+
+  const profile = (profiles || []).find(
+    p => (p.full_name || '').toLowerCase() === cleanName.toLowerCase()
+  );
+
+  if (!profile) {
+    alert('Please select a maintenance employee from the suggested names.');
+    await queue();
+    return;
+  }
+
+  const { error } = await sb
+    .from('issues')
+    .update({
+      assigned_to: profile.id,
+      updated_at: new Date().toISOString()
+    })
+    .eq('id', id);
+
+  if (error) {
+    alert('Assignment could not be updated: ' + error.message);
+    await queue();
+    return;
+  }
+
+  await queue();
+}
 async function completeRepair(id) {
   const repairNotes =
     document.getElementById('repairNotes').value.trim();
