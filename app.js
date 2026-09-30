@@ -215,9 +215,15 @@ function issueHtml(x) {
       <div class="muted">${x.description || ''}</div>
 
       <div class="muted">
-        ${statusLabel(x.status)} · Updated
-        ${new Date(x.updated_at || x.created_at).toLocaleString()}
-      </div>
+  ${statusLabel(x.status)}
+  ${x.assigned_to
+    ? ` · Assigned to: ${getProfileName(x.assigned_to)}`
+    : ''}
+</div>
+
+<div class="muted">
+  Updated ${new Date(x.updated_at || x.created_at).toLocaleString()}
+</div>
 
       ${repairSection}
       
