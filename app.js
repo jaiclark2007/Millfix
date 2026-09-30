@@ -215,8 +215,8 @@ function issueHtml(x) {
       <div class="muted">${x.description || ''}</div>
 
       <div class="muted">
-        ${statusLabel(x.status)} ·
-        ${new Date(x.created_at).toLocaleString()}
+        ${statusLabel(x.status)} · Updated
+        ${new Date(x.updated_at || x.created_at).toLocaleString()}
       </div>
 
       ${repairSection}
