@@ -257,11 +257,23 @@ async function viewHistory(issueId) {
         history.length
           ? history.map(h => `
               <div class="issue">
-                <strong>${h.old_status || 'New'} → ${h.new_status}</strong>
+  <strong>
+    ${h.old_status !== h.new_status
+      ? `${h.old_status || 'New'} → ${h.new_status}`
+      : 'Assignment updated'}
+  </strong>
 
-                <div class="muted">
-                  Changed by: ${getProfileName(h.changed_by)}
-                </div>
+  ${
+    h.assigned_to
+      ? `<div class="muted">Assigned to: ${getProfileName(h.assigned_to)}</div>`
+      : h.old_assigned_to
+        ? `<div class="muted">Assigned to: Unassigned</div>`
+        : ''
+  }
+
+  <div class="muted">
+    Changed by: ${getProfileName(h.changed_by)}
+  </div>
 
                 <div class="muted">
                   ${new Date(h.created_at).toLocaleString()}
