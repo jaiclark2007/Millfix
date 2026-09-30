@@ -55,7 +55,10 @@ function setActive(view) {
     btn.classList.add('primary');
   }
 }
-
+function canManageIssuesUI() {
+  return currentProfile &&
+    ['maintenance', 'supervisor', 'admin'].includes(currentProfile.role);
+}
 function shell() {
   app.innerHTML = `
     <header>
@@ -67,7 +70,9 @@ function shell() {
       <div class="tabs">
         <button id="tab-home" class="btn primary" onclick="home()">Home</button>
         <button id="tab-report" class="btn secondary" onclick="report()">Report Problem</button>
-        <button id="tab-maintenance" class="btn secondary" onclick="queue()">Maintenance</button>
+        ${canManageIssuesUI() ? `
+  <button id="tab-maintenance" class="btn secondary" onclick="queue()">Maintenance</button>
+` : ''}
       </div>
 
       <section id="view"></section>
