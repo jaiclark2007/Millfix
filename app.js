@@ -21,6 +21,7 @@ let user = null;
 let issues = [];
 let departments = []; 
 let profiles = [];
+let currentProfile = null;
 let currentView = 'home';
 
 const app = document.getElementById('app');
@@ -822,6 +823,11 @@ async function completeRepair(id) {
 async function startApp() {
   await loadDepartments();
   await loadProfiles();
+
+  currentProfile = profiles.find(p => p.id === user.id) || null;
+
+  console.log('MillFix logged-in profile:', currentProfile);
+
   shell();
   await home();
 }
