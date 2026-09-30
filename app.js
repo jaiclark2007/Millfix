@@ -752,7 +752,7 @@ function selectMaintenanceMatch(id, profileId) {
   if (input) input.value = profile.full_name || '';
   if (box) box.innerHTML = '';
 
-  assignIssue(id, profile.id);
+  assignIssueByName(id, profile.full_name);
 }
 
 async function assignIssueByName(id, name) {
