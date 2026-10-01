@@ -95,8 +95,14 @@ function loginScreen(message = '') {
         ${message ? `<p class="muted">${message}</p>` : ''}
 
         <div class="field">
-          <label>Email</label>
-          <input id="loginEmail" type="email" autocomplete="email">
+          <label>Check Number</label>
+<input
+  id="loginEmail"
+  type="text"
+  inputmode="numeric"
+  maxlength="5"
+  placeholder="Enter 5-digit check number"
+>
         </div>
 
         <div class="field">
