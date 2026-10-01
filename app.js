@@ -625,6 +625,7 @@ if (profilesError) {
     value="${(profiles || []).find(p => p.id === x.assigned_to)?.full_name || ''}"
     autocomplete="off"
     oninput="showMaintenanceMatches('${x.id}', this.value)"
+  onchange="if (!this.value.trim()) assignIssueByName('${x.id}', '')"
   >
 
   <div
