@@ -316,9 +316,7 @@ async function home() {
       <div class="stat">${open.length}</div>
       <p>Shared MillFix equipment issues.</p>
 
-      <button class="btn primary" onclick="report()">
-        + Report a Problem
-      </button>
+  
     </div>
 
     <div class="card">
