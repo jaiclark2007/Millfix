@@ -111,16 +111,37 @@ function loginScreen(message = '') {
 }
 
 async function login() {
-  const email = document.getElementById('loginEmail').value.trim();
-  const password = document.getElementById('loginPassword').value;
+  const checkNumber = document
+    .getElementById('loginEmail')
+    .value
+    .trim();
 
-  const { data, error } = await sb.auth.signInWithPassword({
-    email,
-    password
-  });
+  const password = document
+    .getElementById('loginPassword')
+    .value;
+
+  if (!/^[0-9]{5}$/.test(checkNumber)) {
+    loginScreen('Enter your 5-digit check number.');
+    return;
+  }
+
+  const { data: email, error: lookupError } = await sb.rpc(
+  'get_login_email',
+  { p_check_number: checkNumber }
+);
+
+if (lookupError || !email) {
+  loginScreen('Sign in failed: invalid check number or password.');
+  return;
+}
+
+const { data, error } = await sb.auth.signInWithPassword({
+  email,
+  password
+});
 
   if (error) {
-    loginScreen('Sign in failed: ' + error.message);
+    loginScreen('Sign in failed: invalid check number or password.');
     return;
   }
 
