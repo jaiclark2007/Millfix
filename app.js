@@ -357,11 +357,7 @@ async function home() {
       }
     </div>
     
-<div class="card">
-  <button class="btn secondary" onclick="archive()">
-    View Issue Archive
-  </button>
-</div>
+
 
     <div class="card">
       <button class="btn secondary" onclick="logout()">
