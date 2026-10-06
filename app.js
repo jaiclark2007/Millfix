@@ -70,6 +70,7 @@ function shell() {
       <div class="tabs">
         <button id="tab-home" class="btn primary" onclick="home()">Home</button>
         <button id="tab-report" class="btn secondary" onclick="report()">Report Problem</button>
+   <button id="tab-archive" class="btn secondary" onclick="archive()">Archive</button>    
         ${canManageIssuesUI() ? `
   <button id="tab-maintenance" class="btn secondary" onclick="queue()">Maintenance</button>
 ` : ''}
@@ -370,6 +371,7 @@ async function home() {
   `;
 }
 async function archive() {
+ setActive('archive');
   await loadIssues();
 
   document.getElementById('view').innerHTML = `
