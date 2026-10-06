@@ -355,6 +355,12 @@ async function home() {
           : '<p class="muted">No issues reported yet.</p>'
       }
     </div>
+    
+<div class="card">
+  <button class="btn secondary" onclick="archive()">
+    View Issue Archive
+  </button>
+</div>
 
     <div class="card">
       <button class="btn secondary" onclick="logout()">
@@ -363,7 +369,74 @@ async function home() {
     </div>
   `;
 }
+async function archive() {
+  await loadIssues();
 
+  document.getElementById('view').innerHTML = `
+    <div class="card">
+      <h2>Issue Archive</h2>
+
+      <p class="muted">
+        Search previous completed, closed, and cancelled equipment issues.
+      </p>
+
+      <div class="field">
+        <label>Search Archive</label>
+        <input
+          id="archiveSearch"
+          type="text"
+          placeholder="Issue #, equipment, component, category, employee..."
+          oninput="renderArchiveResults(this.value)"
+        >
+      </div>
+
+      <div id="archiveResults"></div>
+    </div>
+  `;
+
+  renderArchiveResults('');
+}
+
+function renderArchiveResults(searchText = '') {
+  const search = searchText.trim().toLowerCase();
+
+  const archived = issues
+    .filter(x =>
+      ['Completed', 'Closed', 'Cancelled'].includes(x.status)
+    )
+    .filter(x => {
+      if (!search) return true;
+
+      const assignedName = x.assigned_to
+        ? getProfileName(x.assigned_to)
+        : '';
+
+      const searchableText =
+        `${JSON.stringify(x)} ${assignedName}`.toLowerCase();
+
+      return searchableText.includes(search);
+    });
+
+  const box = document.getElementById('archiveResults');
+
+  if (!box) return;
+
+  box.innerHTML = `
+    <div class="small">
+      ${archived.length} archived issue${archived.length === 1 ? '' : 's'}
+    </div>
+
+    ${
+      archived.length
+        ? archived.map(issueHtml).join('')
+        : '<p class="muted">No archived issues found.</p>'
+    }
+
+    <button class="btn secondary" onclick="home()">
+      Back to Home
+    </button>
+  `;
+}
 async function report() {
   setActive('report');
 
