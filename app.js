@@ -367,7 +367,7 @@ async function home() {
   `;
 }
 async function archive() {
- setActive('archive');
+  setActive('archive');
   await loadIssues();
 
   document.getElementById('view').innerHTML = `
@@ -375,7 +375,7 @@ async function archive() {
       <h2>Issue Archive</h2>
 
       <p class="muted">
-        Search previous completed, closed, and cancelled equipment issues.
+        Search and filter previous completed, closed, and cancelled equipment issues.
       </p>
 
       <div class="field">
@@ -384,7 +384,58 @@ async function archive() {
           id="archiveSearch"
           type="text"
           placeholder="Issue #, equipment, component, category, employee..."
-          oninput="renderArchiveResults(this.value)"
+          oninput="renderArchiveResults()"
+        >
+      </div>
+
+      <div class="field">
+        <label>Equipment</label>
+        <select id="archiveEquipment" onchange="renderArchiveResults()">
+          <option value="">All Equipment</option>
+          ${equipment.map(e =>
+            `<option value="${e[1]}">${e[1]}</option>`
+          ).join('')}
+        </select>
+      </div>
+
+      <div class="field">
+        <label>Status</label>
+        <select id="archiveStatus" onchange="renderArchiveResults()">
+          <option value="">All Archived Statuses</option>
+          <option value="Completed">Completed</option>
+          <option value="Closed">Closed</option>
+          <option value="Cancelled">Cancelled</option>
+        </select>
+      </div>
+
+      <div class="field">
+        <label>Problem Category</label>
+        <select id="archiveCategory" onchange="renderArchiveResults()">
+          <option value="">All Categories</option>
+          <option value="Mechanical">Mechanical</option>
+          <option value="Electrical">Electrical</option>
+          <option value="Hydraulic">Hydraulic</option>
+          <option value="Automation / Controls">Automation / Controls</option>
+          <option value="Coolant / Process">Coolant / Process</option>
+          <option value="Safety">Safety</option>
+        </select>
+      </div>
+
+      <div class="field">
+        <label>From Date</label>
+        <input
+          id="archiveFromDate"
+          type="date"
+          onchange="renderArchiveResults()"
+        >
+      </div>
+
+      <div class="field">
+        <label>To Date</label>
+        <input
+          id="archiveToDate"
+          type="date"
+          onchange="renderArchiveResults()"
         >
       </div>
 
@@ -392,19 +443,35 @@ async function archive() {
     </div>
   `;
 
-  renderArchiveResults('');
+  renderArchiveResults();
 }
 
-function renderArchiveResults(searchText = '') {
-  const search = searchText.trim().toLowerCase();
+function renderArchiveResults() {
+  const search =
+    (document.getElementById('archiveSearch')?.value || '')
+      .trim()
+      .toLowerCase();
+
+  const equipmentFilter =
+    document.getElementById('archiveEquipment')?.value || '';
+
+  const statusFilter =
+    document.getElementById('archiveStatus')?.value || '';
+
+  const categoryFilter =
+    document.getElementById('archiveCategory')?.value || '';
+
+  const fromDate =
+    document.getElementById('archiveFromDate')?.value || '';
+
+  const toDate =
+    document.getElementById('archiveToDate')?.value || '';
 
   const archived = issues
     .filter(x =>
       ['Completed', 'Closed', 'Cancelled'].includes(x.status)
     )
     .filter(x => {
-      if (!search) return true;
-
       const assignedName = x.assigned_to
         ? getProfileName(x.assigned_to)
         : '';
@@ -412,7 +479,57 @@ function renderArchiveResults(searchText = '') {
       const searchableText =
         `${JSON.stringify(x)} ${assignedName}`.toLowerCase();
 
-      return searchableText.includes(search);
+      if (search && !searchableText.includes(search)) {
+        return false;
+      }
+
+      if (
+        equipmentFilter &&
+        !searchableText.includes(equipmentFilter.toLowerCase())
+      ) {
+        return false;
+      }
+
+      if (statusFilter && x.status !== statusFilter) {
+        return false;
+      }
+
+      if (
+        categoryFilter &&
+        String(x.category || '').toLowerCase() !==
+          categoryFilter.toLowerCase()
+      ) {
+        return false;
+      }
+
+      if (fromDate || toDate) {
+        const issueDateValue =
+          x.completed_at ||
+          x.updated_at ||
+          x.created_at;
+
+        if (!issueDateValue) return false;
+
+        const issueDate = new Date(issueDateValue);
+
+        if (fromDate) {
+          const startDate = new Date(fromDate + 'T00:00:00');
+
+          if (issueDate < startDate) {
+            return false;
+          }
+        }
+
+        if (toDate) {
+          const endDate = new Date(toDate + 'T23:59:59.999');
+
+          if (issueDate > endDate) {
+            return false;
+          }
+        }
+      }
+
+      return true;
     });
 
   const box = document.getElementById('archiveResults');
