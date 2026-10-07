@@ -517,22 +517,33 @@ function openArchiveCalendar(targetId) {
   picker.type = 'date';
 
   picker.style.position = 'fixed';
-  picker.style.opacity = '0';
-  picker.style.pointerEvents = 'none';
+  picker.style.left = '-9999px';
+  picker.style.top = '0';
 
   document.body.appendChild(picker);
 
-  picker.onchange = () => {
-    if (picker.value) {
-      const [year, month, day] = picker.value.split('-');
-      target.value = `${month}/${day}/${year}`;
-      renderArchiveResults();
-    }
+  let dateApplied = false;
 
-    picker.remove();
-  };
+  function applySelectedDate() {
+    if (dateApplied || !picker.value) return;
 
-  if (picker.showPicker) {
+    dateApplied = true;
+
+    const [year, month, day] = picker.value.split('-');
+
+    target.value = `${month}/${day}/${year}`;
+
+    renderArchiveResults();
+
+    setTimeout(() => {
+      picker.remove();
+    }, 0);
+  }
+
+  picker.addEventListener('input', applySelectedDate);
+  picker.addEventListener('change', applySelectedDate);
+
+  if (typeof picker.showPicker === 'function') {
     picker.showPicker();
   } else {
     picker.click();
