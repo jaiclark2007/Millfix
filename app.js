@@ -422,22 +422,50 @@ async function archive() {
       </div>
 
       <div class="field">
-        <label>From Date</label>
-        <input
-          id="archiveFromDate"
-          type="date"
-          onchange="renderArchiveResults()"
-        >
-      </div>
+  <label>From Date</label>
 
-      <div class="field">
-        <label>To Date</label>
-        <input
-          id="archiveToDate"
-          type="date"
-          onchange="renderArchiveResults()"
-        >
-      </div>
+  <div style="display:flex; gap:8px; align-items:center;">
+    <input
+      id="archiveFromDate"
+      type="text"
+      inputmode="numeric"
+      placeholder="MM/DD/YYYY"
+      maxlength="10"
+      oninput="formatArchiveDate(this); renderArchiveResults()"
+      style="flex:1;"
+    >
+
+    <button
+      type="button"
+      class="btn secondary"
+      onclick="openArchiveCalendar('archiveFromDate')"
+      style="width:auto; padding:12px 16px;"
+    >📅</button>
+  </div>
+</div>
+
+<div class="field">
+  <label>To Date</label>
+
+  <div style="display:flex; gap:8px; align-items:center;">
+    <input
+      id="archiveToDate"
+      type="text"
+      inputmode="numeric"
+      placeholder="MM/DD/YYYY"
+      maxlength="10"
+      oninput="formatArchiveDate(this); renderArchiveResults()"
+      style="flex:1;"
+    >
+
+    <button
+      type="button"
+      class="btn secondary"
+      onclick="openArchiveCalendar('archiveToDate')"
+      style="width:auto; padding:12px 16px;"
+    >📅</button>
+  </div>
+</div>
 
       <div id="archiveResults"></div>
     </div>
@@ -446,6 +474,70 @@ async function archive() {
   renderArchiveResults();
 }
 
+function formatArchiveDate(input) {
+  let numbers = input.value.replace(/\D/g, '').slice(0, 8);
+
+  if (numbers.length >= 5) {
+    input.value =
+      numbers.slice(0, 2) + '/' +
+      numbers.slice(2, 4) + '/' +
+      numbers.slice(4);
+  } else if (numbers.length >= 3) {
+    input.value =
+      numbers.slice(0, 2) + '/' +
+      numbers.slice(2);
+  } else {
+    input.value = numbers;
+  }
+}
+function parseArchiveDate(value, endOfDay = false) {
+  const match = value.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+
+  if (!match) return null;
+
+  const month = Number(match[1]);
+  const day = Number(match[2]);
+  const year = Number(match[3]);
+
+  return new Date(
+    year,
+    month - 1,
+    day,
+    endOfDay ? 23 : 0,
+    endOfDay ? 59 : 0,
+    endOfDay ? 59 : 0,
+    endOfDay ? 999 : 0
+  );
+}
+function openArchiveCalendar(targetId) {
+  const target = document.getElementById(targetId);
+  if (!target) return;
+
+  const picker = document.createElement('input');
+  picker.type = 'date';
+
+  picker.style.position = 'fixed';
+  picker.style.opacity = '0';
+  picker.style.pointerEvents = 'none';
+
+  document.body.appendChild(picker);
+
+  picker.onchange = () => {
+    if (picker.value) {
+      const [year, month, day] = picker.value.split('-');
+      target.value = `${month}/${day}/${year}`;
+      renderArchiveResults();
+    }
+
+    picker.remove();
+  };
+
+  if (picker.showPicker) {
+    picker.showPicker();
+  } else {
+    picker.click();
+  }
+}
 function renderArchiveResults() {
   const search =
     (document.getElementById('archiveSearch')?.value || '')
@@ -513,17 +605,15 @@ function renderArchiveResults() {
         const issueDate = new Date(issueDateValue);
 
         if (fromDate) {
-          const startDate = new Date(fromDate + 'T00:00:00');
-
-          if (issueDate < startDate) {
+          const startDate = parseArchiveDate(fromDate);
+          if (startDate && issueDate < startDate) {
             return false;
           }
         }
 
         if (toDate) {
-          const endDate = new Date(toDate + 'T23:59:59.999');
-
-          if (issueDate > endDate) {
+          const endDate = parseArchiveDate(toDate, true);
+          if (endDate && issueDate > endDate) {
             return false;
           }
         }
