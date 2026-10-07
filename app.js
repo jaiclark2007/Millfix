@@ -435,19 +435,34 @@ async function archive() {
       style="flex:1;"
     >
 
-    <button
-      type="button"
-      class="btn secondary"
-      onclick="openArchiveCalendar('archiveFromDate')"
-      style="width:auto; padding:12px 16px;"
-    >📅</button>
+    <div style="position:relative; width:74px; flex:0 0 74px;">
+  <button
+    type="button"
+    class="btn secondary"
+    style="width:100%; height:100%; padding:12px 16px; pointer-events:none;"
+  >📅</button>
+
+  <input
+    type="date"
+    aria-label="Choose From Date"
+    onchange="applyArchiveCalendarDate(this, 'archiveFromDate')"
+    style="
+      position:absolute;
+      inset:0;
+      width:100%;
+      height:100%;
+      opacity:0;
+      cursor:pointer;
+    "
+  >
+</div>
   </div>
 </div>
 
 <div class="field">
   <label>To Date</label>
 
-  <div style="display:flex; gap:8px; align-items:center;">
+  <div style="display:flex; gap:8px; align-items:stretch;">
     <input
       id="archiveToDate"
       type="text"
@@ -458,18 +473,41 @@ async function archive() {
       style="flex:1;"
     >
 
-    <button
-      type="button"
-      class="btn secondary"
-      onclick="openArchiveCalendar('archiveToDate')"
-      style="width:auto; padding:12px 16px;"
-    >📅</button>
+    <div style="position:relative; width:74px; flex:0 0 74px;">
+      <button
+        type="button"
+        class="btn secondary"
+        style="width:100%; height:100%; padding:12px 16px; pointer-events:none;"
+      >📅</button>
+
+      <input
+        type="date"
+        aria-label="Choose To Date"
+        onchange="applyArchiveCalendarDate(this, 'archiveToDate')"
+        style="
+          position:absolute;
+          inset:0;
+          width:100%;
+          height:100%;
+          opacity:0;
+          cursor:pointer;
+        "
+      >
+    </div>
   </div>
 </div>
 
       <div id="archiveResults"></div>
     </div>
   `;
+function applyArchiveCalendarDate(dateInput, targetId) {
+  const target = document.getElementById(targetId);
+
+  if (!target || !dateInput.value) return;
+
+  const [year, month, day] = dateInput.value.split('-');
+
+  target.value = `${month}/${day}/${year}`;
 
   renderArchiveResults();
 }
