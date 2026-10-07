@@ -541,28 +541,39 @@ async function loadComponentSuggestions() {
   learnedComponents = components.map(c => c.component_name);
 }
 
+function normalizeComponentSearch(value) {
+  return (value || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, '');
+}
+
 function showComponentSuggestions() {
   const input = document.getElementById('component');
   const box = document.getElementById('componentSuggestions');
-  const typed = input.value.trim().toLowerCase();
+
+  if (!input || !box) return;
+
+  const typed = normalizeComponentSearch(input.value);
 
   box.innerHTML = '';
 
   if (!typed) return;
 
-  const matches = learnedComponents.filter(name =>
-    name.toLowerCase().includes(typed)
-  );
+  const matches = learnedComponents
+    .filter(name =>
+      normalizeComponentSearch(name).includes(typed)
+    )
+    .slice(0, 8);
 
   matches.forEach(name => {
     const item = document.createElement('div');
 
     item.textContent = name;
     item.style.padding = '12px';
+    item.style.cursor = 'pointer';
     item.style.border = '1px solid #ccc';
     item.style.borderRadius = '8px';
     item.style.marginTop = '6px';
-    item.style.cursor = 'pointer';
     item.style.background = 'white';
 
     item.onclick = () => {
