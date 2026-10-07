@@ -500,6 +500,10 @@ async function archive() {
       <div id="archiveResults"></div>
     </div>
   `;
+  
+  renderArchiveResults();
+}
+
 function applyArchiveCalendarDate(dateInput, targetId) {
   const target = document.getElementById(targetId);
 
