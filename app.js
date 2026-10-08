@@ -399,7 +399,7 @@ async function home() {
     
 
 
-    <div class="card">
+  <div class="card" style="display:flex; flex-direction:column; gap:16px;">
   <button class="btn secondary" onclick="changeMyPin()">
     Set / Change PIN
   </button>
