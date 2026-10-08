@@ -397,7 +397,13 @@ async function home() {
       }
     </div>
     
-
+    <div class="card">
+  <div class="small">Signed in as</div>
+  <strong>${currentProfile?.full_name || 'Unknown User'}</strong>
+  <div class="muted">
+    Role: ${currentProfile?.role || 'Unknown'}
+  </div>
+</div>
 
   <div class="card" style="display:flex; flex-direction:column; gap:16px;">
   <button class="btn secondary" onclick="changeMyPin()">
