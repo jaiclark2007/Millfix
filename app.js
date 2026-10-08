@@ -174,7 +174,34 @@ async function logout() {
   user = null;
   loginScreen();
 }
+async function changeMyPin() {
+  const newPin = prompt('Enter your new 6-digit PIN:');
 
+  if (newPin === null) return;
+
+  if (!/^[0-9]{6}$/.test(newPin)) {
+    alert('PIN must be exactly 6 numbers.');
+    return;
+  }
+
+  const confirmPin = prompt('Enter the same 6-digit PIN again:');
+
+  if (confirmPin !== newPin) {
+    alert('PINs do not match. Nothing was changed.');
+    return;
+  }
+
+  const { error } = await sb.auth.updateUser({
+    password: newPin
+  });
+
+  if (error) {
+    alert('PIN could not be changed: ' + error.message);
+    return;
+  }
+
+  alert('PIN updated successfully.');
+}
 async function loadIssues() {
   const { data, error } = await sb
     .from('issues')
@@ -1273,6 +1300,7 @@ if ('serviceWorker' in navigator) {
 
 window.login = login;
 window.logout = logout;
+window.changeMyPin = changeMyPin;
 window.home = home;
 window.report = report;
 window.queue = queue;
