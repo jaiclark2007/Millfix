@@ -400,10 +400,14 @@ async function home() {
 
 
     <div class="card">
-      <button class="btn secondary" onclick="logout()">
-        Sign Out
-      </button>
-    </div>
+  <button class="btn secondary" onclick="changeMyPin()">
+    Set / Change PIN
+  </button>
+
+  <button class="btn secondary" onclick="logout()">
+    Sign Out
+  </button>
+</div>
   `;
 }
 async function archive() {
