@@ -107,9 +107,16 @@ function loginScreen(message = '') {
         </div>
 
         <div class="field">
-          <label>Password</label>
-          <input id="loginPassword" type="password" autocomplete="current-password">
-        </div>
+  <label>PIN</label>
+  <input
+    id="loginPassword"
+    type="password"
+    inputmode="numeric"
+    maxlength="6"
+    placeholder="Enter 6-digit PIN"
+    autocomplete="current-password"
+  >
+</div>
 
         <button class="btn primary" onclick="login()">Sign In</button>
       </div>
@@ -123,32 +130,38 @@ async function login() {
     .value
     .trim();
 
-  const password = document
+  const pin = document
     .getElementById('loginPassword')
-    .value;
+    .value
+    .trim();
 
   if (!/^[0-9]{5}$/.test(checkNumber)) {
     loginScreen('Enter your 5-digit check number.');
     return;
   }
 
+  if (!/^[0-9]{6}$/.test(pin)) {
+    loginScreen('Enter your 6-digit PIN.');
+    return;
+  }
+
   const { data: email, error: lookupError } = await sb.rpc(
-  'get_login_email',
-  { p_check_number: checkNumber }
-);
+    'get_login_email',
+    { p_check_number: checkNumber }
+  );
 
-if (lookupError || !email) {
-  loginScreen('Sign in failed: invalid check number or password.');
-  return;
-}
+  if (lookupError || !email) {
+    loginScreen('Sign in failed: invalid check number or PIN.');
+    return;
+  }
 
-const { data, error } = await sb.auth.signInWithPassword({
-  email,
-  password
-});
+  const { data, error } = await sb.auth.signInWithPassword({
+    email,
+    password: pin
+  });
 
   if (error) {
-    loginScreen('Sign in failed: invalid check number or password.');
+    loginScreen('Sign in failed: invalid check number or PIN.');
     return;
   }
 
