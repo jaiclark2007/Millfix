@@ -107,15 +107,15 @@ function loginScreen(message = '') {
         </div>
 
         <div class="field">
-  <label>PIN</label>
-  <input
-    id="loginPassword"
-    type="password"
-    inputmode="numeric"
-    maxlength="6"
-    placeholder="Enter 6-digit PIN"
-    autocomplete="current-password"
-  >
+<label>PIN / Existing Password</label>
+<input
+  id="loginPassword"
+  type="password"
+  inputmode="text"
+  maxlength="128"
+  placeholder="Enter PIN or existing password"
+  autocomplete="current-password"
+>
 </div>
 
         <button class="btn primary" onclick="login()">Sign In</button>
@@ -140,9 +140,9 @@ async function login() {
     return;
   }
 
-  if (!/^[0-9]{6}$/.test(pin)) {
-    loginScreen('Enter your 6-digit PIN.');
-    return;
+  if (!pin) {
+  loginScreen('Enter your PIN or existing password.');
+  return;
   }
 
   const { data: email, error: lookupError } = await sb.rpc(
