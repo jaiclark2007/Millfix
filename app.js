@@ -1182,7 +1182,7 @@ function showMaintenanceMatches(id, searchText) {
 }
 
 function selectMaintenanceMatch(id, profileId) {
-  const profile = (maintenanceEmployees || []).find(p => p.id === profileId);
+  const profile = (maintenanceEmployees || []).find(p => String(p.id) === String(profileId));
   if (!profile) return;
 
   const input = document.getElementById(`assigned-${id}`);
