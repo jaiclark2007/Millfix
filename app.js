@@ -75,6 +75,9 @@ function shell() {
         ${canManageIssuesUI() ? `
   <button id="tab-maintenance" class="btn secondary" onclick="queue()">Maintenance</button>
 ` : ''}
+      ${currentProfile?.role === 'admin' ? `
+  <button id="tab-admin" class="btn secondary" onclick="adminPanel()">Admin</button>
+` : ''}
       </div>
 
       <section id="view"></section>
@@ -430,6 +433,102 @@ async function home() {
   </button>
 </div>
   `;
+}
+function adminPanel() {
+  if (currentProfile?.role !== 'admin') {
+    alert('Administrator access required.');
+    home();
+    return;
+  }
+
+  setActive('admin');
+
+  const resettableUsers = (profiles || []).filter(p =>
+    ['employee', 'maintenance', 'supervisor'].includes(p.role)
+  );
+
+  document.getElementById('view').innerHTML = `
+    <div class="card">
+      <h2>Admin — Reset Employee PIN</h2>
+
+      <p class="muted">
+        Reset the 6-digit PIN for an Operator, Maintenance, or Supervisor account.
+      </p>
+
+      <div class="field">
+        <label>Employee</label>
+
+        <select id="adminResetUser">
+          <option value="">Select employee...</option>
+
+          ${resettableUsers.map(p => `
+            <option value="${p.id}">
+              ${p.full_name} — ${p.role}
+            </option>
+          `).join('')}
+        </select>
+      </div>
+
+      <div class="field">
+        <label>New 6-digit PIN</label>
+
+        <input
+          id="adminNewPin"
+          type="password"
+          inputmode="numeric"
+          maxlength="6"
+          placeholder="Enter new 6-digit PIN"
+        >
+      </div>
+
+      <button
+        class="btn primary"
+        onclick="resetEmployeePin()"
+      >
+        Reset Employee PIN
+      </button>
+    </div>
+  `;
+}
+async function resetEmployeePin() {
+  if (currentProfile?.role !== 'admin') {
+    alert('Administrator access required.');
+    return;
+  }
+
+  const userId = document.getElementById('adminResetUser').value;
+  const newPin = document.getElementById('adminNewPin').value.trim();
+
+  if (!userId) {
+    alert('Select an employee first.');
+    return;
+  }
+
+  if (!/^[0-9]{6}$/.test(newPin)) {
+    alert('PIN must be exactly 6 numbers.');
+    return;
+  }
+
+  const { data, error } = await sb.functions.invoke('hyper-handler', {
+    body: {
+      user_id: userId,
+      new_pin: newPin
+    }
+  });
+
+  if (error) {
+    alert('PIN reset failed: ' + error.message);
+    return;
+  }
+
+  if (data?.error) {
+    alert('PIN reset failed: ' + data.error);
+    return;
+  }
+
+  alert(data?.message || 'PIN reset successfully.');
+
+  document.getElementById('adminNewPin').value = '';
 }
 async function archive() {
   setActive('archive');
@@ -1339,6 +1438,8 @@ if ('serviceWorker' in navigator) {
 window.login = login;
 window.logout = logout;
 window.changeMyPin = changeMyPin;
+window.adminPanel = adminPanel;
+window.resetEmployeePin = resetEmployeePin;
 window.home = home;
 window.report = report;
 window.queue = queue;
