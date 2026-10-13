@@ -21,6 +21,7 @@ let user = null;
 let issues = [];
 let departments = []; 
 let profiles = [];
+let maintenanceEmployees = [];
 let currentProfile = null;
 let currentView = 'home';
 
@@ -242,7 +243,21 @@ async function loadProfiles() {
 
   profiles = data || [];
 }
+async function loadMaintenanceEmployees() {
+  const { data, error } = await sb
+    .from('maintenance_employees')
+    .select('id, full_name')
+    .eq('active', true)
+    .order('full_name');
 
+  if (error) {
+    console.error('Could not load maintenance employees:', error);
+    maintenanceEmployees = [];
+    return;
+  }
+
+  maintenanceEmployees = data || [];
+}
 function getProfileName(id) {
   const profile = profiles.find(p => p.id === id);
   return profile ? profile.full_name : 'Unknown';
@@ -284,9 +299,9 @@ function issueHtml(x) {
 
       <div class="muted">
   ${statusLabel(x.status)}
-  ${x.assigned_to
-    ? ` · Assigned to: ${getProfileName(x.assigned_to)}`
-    : ''}
+  ${x.assigned_name
+  ? ` · Assigned to: ${x.assigned_name}`
+  : ''}
 </div>
 
 <div class="muted">
@@ -976,7 +991,7 @@ if (componentName) {
 async function queue() {
   setActive('maintenance');
   await loadIssues();
-
+await loadMaintenanceEmployees();
   const { data: profiles, error: profilesError } = await sb
   .from('profiles')
   .select('id, full_name, role, department_id')
@@ -1036,14 +1051,14 @@ if (profilesError) {
   <label>Assigned To</label>
 
   <input
-    type="text"
-    id="assigned-${x.id}"
-    placeholder="Start typing a name..."
-    value="${(profiles || []).find(p => p.id === x.assigned_to)?.full_name || ''}"
-    autocomplete="off"
-    oninput="showMaintenanceMatches('${x.id}', this.value)"
-  onchange="if (!this.value.trim()) assignIssueByName('${x.id}', '')"
-  >
+  type="text"
+  id="assigned-${x.id}"
+  placeholder="Start typing a name..."
+  value="${x.assigned_name || ''}"
+  autocomplete="off"
+  oninput="showMaintenanceMatches('${x.id}', this.value)"
+  onchange="assignIssueByName('${x.id}', this.value)"
+>
 
   <div
     id="matches-${x.id}"
@@ -1144,7 +1159,7 @@ function showMaintenanceMatches(id, searchText) {
     return;
   }
 
-  const matches = (profiles || [])
+  const matches = (maintenanceEmployees || [])
     .filter(p =>
       (p.full_name || '').toLowerCase().includes(search)
     )
@@ -1167,7 +1182,7 @@ function showMaintenanceMatches(id, searchText) {
 }
 
 function selectMaintenanceMatch(id, profileId) {
-  const profile = (profiles || []).find(p => p.id === profileId);
+  const profile = (maintenanceEmployees || []).find(p => p.id === profileId);
   if (!profile) return;
 
   const input = document.getElementById(`assigned-${id}`);
@@ -1181,30 +1196,22 @@ function selectMaintenanceMatch(id, profileId) {
 
 async function assignIssueByName(id, name) {
   const cleanName = name.trim();
-  
+
   if (!cleanName) {
     const { error } = await sb
       .from('issues')
       .update({
         assigned_to: null,
+        assigned_name: null,
         updated_at: new Date().toISOString()
       })
       .eq('id', id);
 
     if (error) {
-      alert('Assignment could not be updated: ' + error.message);
+      alert('Assignment could not be cleared: ' + error.message);
+      return;
     }
 
-    await queue();
-    return;
-  }
-
-  const profile = (profiles || []).find(
-    p => (p.full_name || '').toLowerCase() === cleanName.toLowerCase()
-  );
-
-  if (!profile) {
-    alert('Please select a maintenance employee from the suggested names.');
     await queue();
     return;
   }
@@ -1212,15 +1219,36 @@ async function assignIssueByName(id, name) {
   const { error } = await sb
     .from('issues')
     .update({
-      assigned_to: profile.id,
+      assigned_to: null,
+      assigned_name: cleanName,
       updated_at: new Date().toISOString()
     })
     .eq('id', id);
 
   if (error) {
     alert('Assignment could not be updated: ' + error.message);
-    await queue();
     return;
+  }
+
+  const alreadyKnown = (maintenanceEmployees || []).some(
+    employee =>
+      (employee.full_name || '').trim().toLowerCase() ===
+      cleanName.toLowerCase()
+  );
+
+  if (!alreadyKnown) {
+    const { error: learnError } = await sb
+      .from('maintenance_employees')
+      .insert({
+        full_name: cleanName
+      });
+
+    if (learnError) {
+      console.error(
+        'Maintenance employee name could not be learned:',
+        learnError
+      );
+    }
   }
 
   await queue();
