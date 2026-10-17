@@ -267,7 +267,7 @@ function getProfileName(id) {
   return profile ? profile.full_name : 'Unknown';
 }
 // Starting threshold for an active issue needing a progress update.
-const STALE_ISSUE_HOURS = 48;
+const STALE_ISSUE_HOURS = 6 * 24;
 function activeIssueAge(issue, now = Date.now()) {
   const active = !['Completed','Closed','Cancelled'].includes(issue.status);
   const created = Date.parse(issue.created_at);
@@ -298,7 +298,7 @@ function issueAgeHtml(issue, now = Date.now()) {
     <div><strong>Open for:</strong> ${formatIssueAge(age.openMs)}</div>
     <div><strong>Last updated:</strong> ${age.idleMs === null ? 'Unknown' : formatIssueAge(age.idleMs)+' ago'}</div>
     ${Number.isFinite(age.updated) ? `<div class="muted">${new Date(age.updated).toLocaleString()}</div>` : ''}
-    ${age.needsUpdate ? `<div class="muted">No recorded update in ${STALE_ISSUE_HOURS} hours or more.</div>` : ''}
+    ${age.needsUpdate ? `<div class="muted">No recorded update in ${STALE_ISSUE_HOURS / 24} days or more.</div>` : ''}
   </div>`;
 }
 
@@ -1545,7 +1545,7 @@ if (profilesError) {
     <div class="card">
       <h2>Maintenance Queue</h2>
       <p style="color:#b91c1c;font-weight:700">${active.filter(x=>activeIssueAge(x).needsUpdate).length} of ${active.length} active jobs need an update</p>
-      <p class="muted">Flagged after ${STALE_ISSUE_HOURS} hours without a recorded update, including jobs waiting on parts or vendors. This is a follow-up reminder, not a change in job status or priority.</p>
+      <p class="muted">Flagged after ${STALE_ISSUE_HOURS / 24} days without a recorded update, including jobs waiting on parts or vendors. This is a follow-up reminder, not a change in job status or priority.</p>
       <button type="button" class="btn secondary" onclick="queue()">Refresh Job Ages</button>
 
       ${
