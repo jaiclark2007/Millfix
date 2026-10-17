@@ -396,6 +396,16 @@ async function home() {
     !['Completed', 'Closed', 'Cancelled'].includes(x.status)
   );
 
+  // Sort a copy so Home activity does not reorder Maintenance or Archive.
+  const recentActivity = [...issues]
+    .sort((a, b) => {
+      const aUpdated = Date.parse(a.updated_at || a.created_at) || 0;
+      const bUpdated = Date.parse(b.updated_at || b.created_at) || 0;
+      return bUpdated - aUpdated ||
+        (Date.parse(b.created_at) || 0) - (Date.parse(a.created_at) || 0);
+    })
+    .slice(0, 5);
+
   document.getElementById('view').innerHTML = `
     <div class="card">
       <div class="small">Open issues</div>
@@ -406,11 +416,12 @@ async function home() {
     </div>
 
     <div class="card">
-      <h2>Recent Issues</h2>
+      <h2>Recent Activity</h2>
+      <p class="muted">The five most recently updated issues, including new reports and completed repairs.</p>
 
       ${
-        issues.length
-          ? issues.slice(0, 5).map(issueHtml).join('')
+        recentActivity.length
+          ? recentActivity.map(issueHtml).join('')
           : '<p class="muted">No issues reported yet.</p>'
       }
     </div>
