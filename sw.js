@@ -1,4 +1,4 @@
-const CACHE = 'millfix-v2';
+const CACHE = 'millfix-v3-photos';
 
 const ASSETS = [
   './',
@@ -29,6 +29,9 @@ self.addEventListener('activate', event => {
 });
 
 self.addEventListener('fetch', event => {
+  // Never cache private API responses or signed photo URLs.
+  const url = new URL(event.request.url);
+  if (event.request.method !== 'GET' || url.origin !== self.location.origin) return;
   event.respondWith(
     fetch(event.request)
       .then(response => {
