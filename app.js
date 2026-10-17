@@ -900,15 +900,47 @@ let photoSubmitting = false;
 const VIDEO_MAX_BYTES = 25000000;
 const VIDEO_MAX_SECONDS = 30;
 function isVideoName(name) { return /[.](mp4|mov|webm)$/i.test(name); }
-function videoPickerHtml() {
-  return `<div style="margin-top:20px"><label>Video (optional)</label>
-    <p class="muted">One video per report or update. Maximum 30 seconds and 25 MB. MP4, MOV or WebM. Choose a shorter clip if it is too large.</p>
-    <button type="button" class="btn secondary" onclick="document.getElementById('videoCamera').click()">Record Video</button>
-    <button type="button" class="btn secondary" style="margin-top:12px" onclick="document.getElementById('videoGallery').click()">Choose Video</button>
+function mediaPickerHtml() {
+  return `<div class="field">
+    <label>Photos / Video (optional)</label>
+    <p class="muted" style="margin:6px 0 10px">5 photos (10 MB each) · 1 video (30 sec / 25 MB max)</p>
+    <div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px">
+      <button type="button" class="btn secondary" onclick="openMediaCapture()">Take Photo / Video</button>
+      <button type="button" class="btn secondary" onclick="document.getElementById('mediaGallery').click()">Choose from Gallery</button>
+    </div>
+    <input id="photoCamera" type="file" accept="image/jpeg,image/png,image/webp" capture="environment" hidden onchange="selectIssuePhotos(this)">
     <input id="videoCamera" type="file" accept="video/mp4,video/quicktime,video/webm" capture="environment" hidden onchange="selectIssueVideo(this)">
-    <input id="videoGallery" type="file" accept="video/mp4,video/quicktime,video/webm" hidden onchange="selectIssueVideo(this)">
-    <p class="muted">Recording does not stop automatically at 30 seconds. Shorter clips upload faster. Playback depends on your device's video format support.</p>
+    <input id="mediaGallery" type="file" accept="image/jpeg,image/png,image/webp,video/mp4,video/quicktime,video/webm" multiple hidden onchange="selectIssueMedia(this)">
+    <dialog id="mediaCaptureChoice" aria-labelledby="mediaCaptureTitle" style="border:0;border-radius:16px;padding:20px;width:calc(100% - 32px);max-width:360px">
+      <h3 id="mediaCaptureTitle" style="margin-top:0">Take Photo / Video</h3>
+      <div style="display:grid;gap:12px">
+        <button type="button" class="btn primary" onclick="captureIssueMedia('photoCamera')">Take Photo</button>
+        <button type="button" class="btn primary" onclick="captureIssueMedia('videoCamera')">Record Video</button>
+        <p class="muted" style="margin:0">Stop recording within 30 seconds. Maximum video size: 25 MB.</p>
+        <button type="button" class="btn secondary" onclick="document.getElementById('mediaCaptureChoice').close()">Cancel</button>
+      </div>
+    </dialog>
+    <div id="photoPreviews" style="display:flex;flex-wrap:wrap;gap:12px;margin-top:12px"></div>
+    <p id="photoProgress" role="status" aria-live="polite"></p>
   </div>`;
+}
+function openMediaCapture() {
+  if (photosPreparing || photoSubmitting || pendingPhotoIssue || progressSaving || progressDraft?.started) return;
+  document.getElementById('mediaCaptureChoice').showModal();
+}
+function captureIssueMedia(inputId) {
+  document.getElementById('mediaCaptureChoice').close();
+  document.getElementById(inputId).click();
+}
+async function selectIssueMedia(input) {
+  const files=Array.from(input.files || []); input.value='';
+  if (photosPreparing || photoSubmitting || pendingPhotoIssue || progressSaving || progressDraft?.started) return;
+  // Process sequentially so the existing validation, preparation, and limits apply.
+  for (const file of files) {
+    const selection={files:[file],value:''};
+    if (file.type.startsWith('video/')) await selectIssueVideo(selection);
+    else await selectIssuePhotos(selection);
+  }
 }
 function readVideoDuration(file) {
   return new Promise((resolve,reject)=>{
@@ -1160,14 +1192,7 @@ function showProgressForm(issueId) {
     <h2>Add Progress Update</h2><p>#${Number(issue.issue_number)} — ${escapeProgress(issue.title)}</p>
     <div class="field"><label for="progressNote">Work / progress notes</label>
       <textarea id="progressNote" maxlength="4000" placeholder="What was inspected, repaired, or found? What happens next?"></textarea></div>
-    <div class="field"><label>Photos (optional)</label><p class="muted">Up to 5 photos, 10 MB each. JPEG, PNG or WebP.</p>
-      <button type="button" class="btn secondary" onclick="document.getElementById('photoCamera').click()">Take Photo</button>
-      <button type="button" class="btn secondary" onclick="document.getElementById('photoGallery').click()">Choose from Gallery</button>
-      <input id="photoCamera" type="file" accept="image/jpeg,image/png,image/webp" capture="environment" hidden onchange="selectIssuePhotos(this)">
-      <input id="photoGallery" type="file" accept="image/jpeg,image/png,image/webp" multiple hidden onchange="selectIssuePhotos(this)">
-      ${videoPickerHtml()}
-      <div id="photoPreviews" style="display:flex;flex-wrap:wrap;gap:12px;margin-top:12px"></div></div>
-    <p id="photoProgress" role="status" aria-live="polite"></p>
+    ${mediaPickerHtml()}
     <button id="saveProgressButton" type="button" class="btn primary" onclick="saveProgressUpdate()">Save Progress Update</button>
     <button type="button" class="btn secondary" style="margin-top:16px" onclick="queue()">Back to Maintenance</button>
     </div>`;
@@ -1286,17 +1311,7 @@ async function report() {
         ></textarea>
       </div>
 
-      <div class="field">
-        <label>Photos (optional)</label>
-        <p class="muted">Up to 5 photos, 10 MB each. JPEG, PNG or WebP.</p>
-        <button type="button" class="btn secondary" onclick="document.getElementById('photoCamera').click()">Take Photo</button>
-        <button type="button" class="btn secondary" onclick="document.getElementById('photoGallery').click()">Choose from Gallery</button>
-        <input id="photoCamera" type="file" accept="image/jpeg,image/png,image/webp" capture="environment" hidden onchange="selectIssuePhotos(this)">
-        <input id="photoGallery" type="file" accept="image/jpeg,image/png,image/webp" multiple hidden onchange="selectIssuePhotos(this)">
-        ${videoPickerHtml()}
-      <div id="photoPreviews" style="display:flex;flex-wrap:wrap;gap:12px"></div>
-        <p id="photoProgress" role="status" aria-live="polite"></p>
-      </div>
+      ${mediaPickerHtml()}
       <button id="submitIssueButton" class="btn primary" onclick="submitIssue()">
         Submit Issue
       </button>
@@ -1839,6 +1854,7 @@ window.showRepairForm = showRepairForm;
 window.completeRepair = completeRepair;
 
 init();
+
 
 
 
