@@ -4,3 +4,6 @@
 .field button[onclick*="photoCamera"],
 .field button[onclick*="photoGallery"]{display:block}
 .field button[onclick*="photoGallery"]{margin-top:8px}
+
+/* Separate issue history from the photo action and repair details. */
+.issue > .btn[onclick^="viewHistory("]{margin-top:16px}
