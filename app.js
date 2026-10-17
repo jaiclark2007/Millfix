@@ -350,13 +350,17 @@ ${activeIssueAge(x).active ? issueAgeHtml(x) : `<div class="muted">Updated ${new
       ${repairSection}
       
     <button class="btn" onclick="viewHistory('${x.id}')">
-    View History
+    View Issue / History
     </button>
     
     </div>
   `;
 }
+let issueDetailRequest = 0;
 async function viewHistory(issueId) {
+  if (!canLeavePhotoReport()) return;
+  const request = ++issueDetailRequest;
+  setActive('history');
   const issue = issues.find(x => x.id === issueId);
 
   const { data, error } = await sb
@@ -375,15 +379,21 @@ async function viewHistory(issueId) {
   const history = [...(data || []), ...(progressResult.data || []).map(update => ({...update, isProgress:true}))]
     .sort((a,b) => Date.parse(a.created_at)-Date.parse(b.created_at));
 
+  if (request !== issueDetailRequest || currentView !== 'history') return;
   document.getElementById('view').innerHTML = `
     <div class="card">
-      <h2>Issue History</h2>
+      <h2>Issue Details & History</h2>
 
       <h3>
         #${issue ? issue.issue_number : ''} —
         ${issue ? issue.title : 'Equipment Issue'}
       </h3>
 
+      ${issue ? `<p style="white-space:pre-wrap">${escapeProgress(issue.description || '')}</p>
+        <p class="muted">${escapeProgress(statusLabel(issue.status))} · ${escapeProgress(issue.priority || 'Normal')} priority${issue.assigned_name ? ' · Assigned to: '+escapeProgress(issue.assigned_name) : ''}</p>` : ''}
+      <section id="issueReceiptPanel" data-issue-id="${issueId}" style="margin:12px 0;padding:12px;background:#f3f5f8;border-radius:10px" aria-label="Viewed and acknowledged">
+        <span class="muted">Loading confirmations…</span>
+      </section>
       ${issue ? photoViewerHtml(issue) : ''}
       ${
         history.length
@@ -426,6 +436,59 @@ async function viewHistory(issueId) {
       </button>
     </div>
   `;
+  await loadIssueReceipts(issueId, true);
+}
+
+function receiptPanelFor(issueId) {
+  const panel=document.getElementById('issueReceiptPanel');
+  return panel?.dataset.issueId === issueId ? panel : null;
+}
+function receiptSummary(rows, role) {
+  const group=rows.filter(row=>row.actor_role===role);
+  if(group.some(row=>row.acknowledged_at)) return 'Acknowledged';
+  return group.length ? 'Viewed · Acknowledgment pending' : 'No view recorded';
+}
+function receiptPanelHtml(issueId, rows) {
+  const mine=rows.find(row=>row.user_id===user?.id);
+  const roles=[['supervisor','Supervisor'],['maintenance','Maintenance']];
+  if(rows.some(row=>row.actor_role==='admin')) roles.push(['admin','Administrator']);
+  return `<div style="font-size:13px;display:grid;gap:4px">
+    ${roles.map(([role,label])=>`<div><strong>${label}:</strong> ${receiptSummary(rows,role)}</div>`).join('')}
+    </div>
+    ${rows.length ? `<details style="margin-top:8px;font-size:13px"><summary style="cursor:pointer;padding:4px 0">Who and when</summary>
+      ${rows.map(row=>`<div style="padding:8px 0;border-top:1px solid #d1d5db"><strong>${escapeProgress(getProfileName(row.user_id))}</strong> · ${escapeProgress(row.actor_role)}
+      <div>First viewed: ${new Date(row.first_viewed_at).toLocaleString()}</div>
+      <div>${row.acknowledged_at ? 'Acknowledged: '+new Date(row.acknowledged_at).toLocaleString() : 'Not yet acknowledged'}</div></div>`).join('')}
+      <p class="muted">Tracking starts with this feature. Acknowledgment confirms awareness, not repair progress.</p>
+    </details>` : ''}
+    ${canManageIssuesUI() ? mine?.acknowledged_at ? '<p class="muted" style="margin:8px 0 0">You acknowledged this issue.</p>' : `<button type="button" class="btn primary" style="width:auto;min-height:44px;margin-top:10px;padding:10px 16px" onclick="acknowledgeIssue('${issueId}',this)">Acknowledge</button>` : ''}`;
+}
+async function loadIssueReceipts(issueId, recordView=false) {
+  if(!receiptPanelFor(issueId)) return;
+  try {
+    if(recordView && canManageIssuesUI()) {
+      const result=await sb.rpc('record_issue_receipt',{p_issue_id:issueId,p_acknowledge:false});
+      if(result.error) throw result.error;
+    }
+    const result=await sb.from('issue_receipts').select('user_id,actor_role,first_viewed_at,acknowledged_at').eq('issue_id',issueId).order('first_viewed_at');
+    if(result.error) throw result.error;
+    const panel=receiptPanelFor(issueId); if(panel) panel.innerHTML=receiptPanelHtml(issueId,result.data || []);
+  } catch(error) {
+    const panel=receiptPanelFor(issueId);
+    if(panel) panel.innerHTML=`<p class="muted">Confirmations could not be loaded or saved. Please retry.</p><button type="button" class="btn secondary" style="width:auto" onclick="loadIssueReceipts('${issueId}',true)">Retry confirmations</button>`;
+  }
+}
+async function acknowledgeIssue(issueId,button) {
+  if(!canManageIssuesUI() || !receiptPanelFor(issueId) || button.disabled) return;
+  button.disabled=true;button.textContent='Saving…';
+  try {
+    const result=await sb.rpc('record_issue_receipt',{p_issue_id:issueId,p_acknowledge:true});
+    if(result.error) throw result.error;
+    await loadIssueReceipts(issueId);
+  } catch(error) {
+    button.disabled=false;button.textContent='Retry Acknowledge';
+    alert('Acknowledgment was not confirmed. Please retry.');
+  }
 }
 
 async function home() {
@@ -1566,7 +1629,7 @@ if (profilesError) {
               ${issueAgeHtml(x)}
               ${photoViewerHtml(x)}
               ${canManageIssuesUI() ? `<button type="button" class="btn primary" style="margin-top:16px" onclick="showProgressForm('${x.id}')">Add Progress Update</button>` : ''}
-              <button type="button" class="btn secondary" style="margin-top:16px" onclick="viewHistory('${x.id}')">View History</button>
+              <button type="button" class="btn secondary" style="margin-top:16px" onclick="viewHistory('${x.id}')">View Issue / History</button>
               <div class="field">
                 <label>Status</label>
 
@@ -1892,6 +1955,7 @@ window.showRepairForm = showRepairForm;
 window.completeRepair = completeRepair;
 
 init();
+
 
 
 
