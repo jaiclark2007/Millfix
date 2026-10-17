@@ -336,7 +336,10 @@ async function viewHistory(issueId) {
     return;
   }
 
-  const history = data || [];
+  const progressResult = await sb.from('issue_progress_updates').select('*').eq('issue_id', issueId).order('created_at');
+  if (progressResult.error) { alert('Progress history could not be loaded: ' + progressResult.error.message); return; }
+  const history = [...(data || []), ...(progressResult.data || []).map(update => ({...update, isProgress:true}))]
+    .sort((a,b) => Date.parse(a.created_at)-Date.parse(b.created_at));
 
   document.getElementById('view').innerHTML = `
     <div class="card">
@@ -350,7 +353,7 @@ async function viewHistory(issueId) {
       ${issue ? photoViewerHtml(issue) : ''}
       ${
         history.length
-          ? history.map(h => `
+          ? history.map(h => h.isProgress ? progressUpdateHtml(h) : `
               <div class="issue">
   <strong>
     ${h.old_status !== h.new_status
@@ -381,7 +384,7 @@ async function viewHistory(issueId) {
                 }
               </div>
             `).join('')
-          : '<p class="muted">No status history recorded for this issue.</p>'
+          : '<p class="muted">No history recorded for this issue.</p>'
       }
 
       <button class="btn" onclick="home()">
@@ -878,6 +881,12 @@ function renderArchiveResults() {
 }
 
 function canLeavePhotoReport() {
+  if (progressSaving) { alert('Please wait for the progress update to finish.'); return false; }
+  if (progressDraft) {
+    if (progressDraft.started) { alert('Please retry saving this progress update before leaving.'); return false; }
+    if (!confirm('Discard this unsaved progress update?')) return false;
+    progressDraft = null; clearSelectedPhotos();
+  }
   if (photoSubmitting) { alert('Please wait for the upload to finish.'); return false; }
   if (pendingPhotoIssue && !confirm('Your issue is saved, but some photos have not uploaded. Leave without the remaining photos?')) return false;
   return true;
@@ -891,7 +900,7 @@ function clearSelectedPhotos() {
   selectedIssuePhotos = [];
 }
 function selectIssuePhotos(input) {
-  if (photoSubmitting || pendingPhotoIssue) { input.value = ''; return; }
+  if (photoSubmitting || pendingPhotoIssue || progressSaving || progressDraft?.started) { input.value = ''; return; }
   for (const file of Array.from(input.files || [])) {
     if (selectedIssuePhotos.length >= 5) { alert('You can attach up to 5 photos.'); break; }
     if (!['image/jpeg','image/png','image/webp'].includes(file.type) || file.size > 10485760 || !file.size) {
@@ -915,7 +924,7 @@ function renderPhotoPreviews() {
     const remove = document.createElement('button');
     remove.type = 'button'; remove.className = 'btn secondary'; remove.textContent = 'Remove';
     remove.onclick = () => {
-      if (photoSubmitting || pendingPhotoIssue) return;
+      if (photoSubmitting || pendingPhotoIssue || progressSaving || progressDraft?.started) return;
       URL.revokeObjectURL(photo.preview); selectedIssuePhotos.splice(index,1); renderPhotoPreviews();
     };
     card.append(img,remove); box.append(card);
@@ -956,7 +965,7 @@ async function viewIssuePhotos(issueId, button) {
     if (listing.error) throw listing.error;
     box.replaceChildren();
     const photos = (listing.data || []).filter(item => item.id);
-    if (!photos.length) box.textContent = 'No photos attached.';
+    if (!photos.length) box.textContent = 'No original report photos attached.';
     for (const photo of photos) {
       const signed = await sb.storage.from('issue-photos').createSignedUrl(folder+'/'+photo.name, 600);
       if (signed.error) throw signed.error;
@@ -965,12 +974,108 @@ async function viewIssuePhotos(issueId, button) {
       img.style.cssText = 'width:140px;height:120px;object-fit:cover;border-radius:8px';
       link.append(img); box.append(link);
     }
+    const updates = await sb.from('issue_progress_updates').select('*').eq('issue_id',issueId).order('created_at');
+    if (updates.error) throw updates.error;
+    for (const update of updates.data || []) {
+      const card = document.createElement('div'); card.style.width = '100%';
+      card.innerHTML = progressUpdateHtml(update); box.append(card);
+    }
   } catch(error) { box.textContent = 'Photos could not be loaded. '+error.message; }
   finally { button.disabled = false; }
 }
 window.addEventListener('beforeunload', event => {
-  if (photoSubmitting || pendingPhotoIssue) { event.preventDefault(); event.returnValue = ''; }
+  if (photoSubmitting || pendingPhotoIssue || progressSaving || progressDraft?.started) { event.preventDefault(); event.returnValue = ''; }
 });
+
+
+let progressDraft = null;
+let progressSaving = false;
+function escapeProgress(value) {
+  return String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+function progressUpdateHtml(update) {
+  return `<div class="issue"><strong>Progress update</strong>
+    <div class="muted">${escapeProgress(getProfileName(update.author_id))} · ${new Date(update.created_at).toLocaleString()}</div>
+    <p style="white-space:pre-wrap">${escapeProgress(update.note)}</p>
+    ${update.photo_names.length ? `<button type="button" class="btn secondary" onclick="viewProgressPhotos('${update.id}',this)">View Progress Photos (${update.photo_names.length})</button><div style="display:flex;flex-wrap:wrap;gap:12px;margin-top:12px" aria-live="polite"></div>` : ''}
+  </div>`;
+}
+async function viewProgressPhotos(updateId, button) {
+  const box = button.nextElementSibling;
+  button.disabled = true; box.textContent = 'Loading photos…';
+  try {
+    const {data:update,error} = await sb.from('issue_progress_updates').select('*').eq('id',updateId).single();
+    if(error) throw error;
+    box.replaceChildren();
+    for(const name of update.photo_names) {
+      const path = `${update.issue_id}/${update.author_id}/${update.id}/${name}`;
+      const signed = await sb.storage.from('issue-progress-photos').createSignedUrl(path,600);
+      if(signed.error) throw signed.error;
+      const link = document.createElement('a'); link.href=signed.data.signedUrl; link.target='_blank'; link.rel='noopener noreferrer';
+      const img = document.createElement('img'); img.src=signed.data.signedUrl; img.alt='Progress photo — tap to enlarge'; img.loading='lazy';
+      img.style.cssText='width:140px;height:120px;object-fit:cover;border-radius:8px'; link.append(img); box.append(link);
+    }
+  } catch(error) { box.textContent='Photos could not be loaded. '+error.message; }
+  finally { button.disabled=false; }
+}
+function showProgressForm(issueId) {
+  if(!canManageIssuesUI() || !canLeavePhotoReport()) return;
+  const issue=issues.find(x=>x.id===issueId);
+  if(!issue) return;
+  clearSelectedPhotos(); pendingPhotoIssue=null;
+  progressDraft={id:crypto.randomUUID(),issueId,started:false,note:''};
+  document.getElementById('view').innerHTML=`<div class="card">
+    <h2>Add Progress Update</h2><p>#${Number(issue.issue_number)} — ${escapeProgress(issue.title)}</p>
+    <div class="field"><label for="progressNote">Work / progress notes</label>
+      <textarea id="progressNote" maxlength="4000" placeholder="What was inspected, repaired, or found? What happens next?"></textarea></div>
+    <div class="field"><label>Photos (optional)</label><p class="muted">Up to 5 photos, 10 MB each. JPEG, PNG or WebP.</p>
+      <button type="button" class="btn secondary" onclick="document.getElementById('photoCamera').click()">Take Photo</button>
+      <button type="button" class="btn secondary" onclick="document.getElementById('photoGallery').click()">Choose from Gallery</button>
+      <input id="photoCamera" type="file" accept="image/jpeg,image/png,image/webp" capture="environment" hidden onchange="selectIssuePhotos(this)">
+      <input id="photoGallery" type="file" accept="image/jpeg,image/png,image/webp" multiple hidden onchange="selectIssuePhotos(this)">
+      <div id="photoPreviews" style="display:flex;flex-wrap:wrap;gap:12px;margin-top:12px"></div></div>
+    <p id="photoProgress" role="status" aria-live="polite"></p>
+    <button id="saveProgressButton" type="button" class="btn primary" onclick="saveProgressUpdate()">Save Progress Update</button>
+    <button type="button" class="btn secondary" style="margin-top:16px" onclick="queue()">Back to Maintenance</button>
+    </div>`;
+}
+async function saveProgressUpdate() {
+  if(progressSaving || !progressDraft || !canManageIssuesUI()) return;
+  const draft=progressDraft;
+  if(!draft.started) {
+    draft.note=document.getElementById('progressNote').value.trim();
+    if(!draft.note) { alert('Add a short note explaining the progress.'); return; }
+    draft.started=true;
+  }
+  progressSaving=true;
+  const button=document.getElementById('saveProgressButton'); button.disabled=true;
+  document.getElementById('progressNote').disabled=true;
+  const message=document.getElementById('photoProgress');
+  try {
+    const folder=`${draft.issueId}/${user.id}/${draft.id}`;
+    for(let i=0;i<selectedIssuePhotos.length;i++) {
+      const photo=selectedIssuePhotos[i]; if(photo.uploaded) continue;
+      message.textContent=`Uploading photo ${i+1} of ${selectedIssuePhotos.length}…`;
+      const result=await sb.storage.from('issue-progress-photos').upload(folder+'/'+photo.name,photo.file,{contentType:photo.file.type,upsert:false});
+      if(result.error) {
+        const check=await sb.storage.from('issue-progress-photos').list(folder,{search:photo.name,limit:10});
+        if(check.error || !(check.data||[]).some(x=>x.name===photo.name)) throw result.error;
+      }
+      photo.uploaded=true;
+    }
+    message.textContent='Saving progress update…';
+    const result=await sb.from('issue_progress_updates').insert({id:draft.id,issue_id:draft.issueId,note:draft.note,photo_names:selectedIssuePhotos.map(x=>x.name)});
+    if(result.error) {
+      const check=await sb.from('issue_progress_updates').select('id').eq('id',draft.id).maybeSingle();
+      if(check.error || !check.data) throw result.error;
+    }
+    progressDraft=null; clearSelectedPhotos(); progressSaving=false;
+    await loadIssues(); await viewHistory(draft.issueId);
+  } catch(error) {
+    message.textContent='Update not confirmed. Keep this page open and tap Retry Save. '+error.message;
+    button.textContent='Retry Save';
+  } finally { progressSaving=false; button.disabled=false; }
+}
 
 async function report() {
   if (!canLeavePhotoReport()) return;
@@ -1270,6 +1375,8 @@ if (profilesError) {
               </div>
 
               ${photoViewerHtml(x)}
+              ${canManageIssuesUI() ? `<button type="button" class="btn primary" style="margin-top:16px" onclick="showProgressForm('${x.id}')">Add Progress Update</button>` : ''}
+              <button type="button" class="btn secondary" style="margin-top:16px" onclick="viewHistory('${x.id}')">View History</button>
               <div class="field">
                 <label>Status</label>
 
@@ -1595,4 +1702,5 @@ window.showRepairForm = showRepairForm;
 window.completeRepair = completeRepair;
 
 init();
+
 
