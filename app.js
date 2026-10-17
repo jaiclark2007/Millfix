@@ -266,6 +266,42 @@ function getProfileName(id) {
   const profile = profiles.find(p => p.id === id);
   return profile ? profile.full_name : 'Unknown';
 }
+// Starting threshold for an active issue needing a progress update.
+const STALE_ISSUE_HOURS = 48;
+function activeIssueAge(issue, now = Date.now()) {
+  const active = !['Completed','Closed','Cancelled'].includes(issue.status);
+  const created = Date.parse(issue.created_at);
+  const parsedUpdated = Date.parse(issue.updated_at);
+  const updated = Number.isFinite(parsedUpdated) ? parsedUpdated : created;
+  return {
+    active, created, updated,
+    openMs: Number.isFinite(created) ? Math.max(0,now-created) : null,
+    idleMs: Number.isFinite(updated) ? Math.max(0,now-updated) : null,
+    needsUpdate: active && Number.isFinite(updated) && now-updated >= STALE_ISSUE_HOURS*3600000
+  };
+}
+function formatIssueAge(ms) {
+  if (ms === null) return 'Unknown';
+  const minutes = Math.floor(ms/60000);
+  if (minutes < 1) return 'less than a minute';
+  if (minutes < 60) return `${minutes} min`;
+  const hours = Math.floor(minutes/60);
+  if (hours < 24) return `${hours} hr${minutes%60 ? ` ${minutes%60} min` : ''}`;
+  const days = Math.floor(hours/24);
+  return `${days} day${days===1?'':'s'}${hours%24 ? ` ${hours%24} hr` : ''}`;
+}
+function issueAgeHtml(issue, now = Date.now()) {
+  const age = activeIssueAge(issue,now);
+  if (!age.active) return '';
+  return `<div style="margin:12px 0;padding:10px 12px;border-left:4px solid ${age.needsUpdate ? '#b91c1c' : '#bfdbfe'};border-radius:6px;background:${age.needsUpdate ? '#fef2f2' : '#eff6ff'}">
+    ${age.needsUpdate ? '<strong style="display:block;color:#991b1b;margin-bottom:4px">Needs update</strong>' : ''}
+    <div><strong>Open for:</strong> ${formatIssueAge(age.openMs)}</div>
+    <div><strong>Last updated:</strong> ${age.idleMs === null ? 'Unknown' : formatIssueAge(age.idleMs)+' ago'}</div>
+    ${Number.isFinite(age.updated) ? `<div class="muted">${new Date(age.updated).toLocaleString()}</div>` : ''}
+    ${age.needsUpdate ? `<div class="muted">No recorded update in ${STALE_ISSUE_HOURS} hours or more.</div>` : ''}
+  </div>`;
+}
+
 function issueHtml(x) {
   const repairSection =
     x.status === 'Completed' && x.repair_notes
@@ -308,9 +344,7 @@ function issueHtml(x) {
   : ''}
 </div>
 
-<div class="muted">
-  Updated ${new Date(x.updated_at || x.created_at).toLocaleString()}
-</div>
+${activeIssueAge(x).active ? issueAgeHtml(x) : `<div class="muted">Updated ${new Date(x.updated_at || x.created_at).toLocaleString()}</div>`}
 
       ${photoViewerHtml(x)}
       ${repairSection}
@@ -1510,6 +1544,9 @@ if (profilesError) {
   document.getElementById('view').innerHTML = `
     <div class="card">
       <h2>Maintenance Queue</h2>
+      <p style="color:#b91c1c;font-weight:700">${active.filter(x=>activeIssueAge(x).needsUpdate).length} of ${active.length} active jobs need an update</p>
+      <p class="muted">Flagged after ${STALE_ISSUE_HOURS} hours without a recorded update, including jobs waiting on parts or vendors. This is a follow-up reminder, not a change in job status or priority.</p>
+      <button type="button" class="btn secondary" onclick="queue()">Refresh Job Ages</button>
 
       ${
         active.length
@@ -1526,6 +1563,7 @@ if (profilesError) {
                 ${x.description || ''}
               </div>
 
+              ${issueAgeHtml(x)}
               ${photoViewerHtml(x)}
               ${canManageIssuesUI() ? `<button type="button" class="btn primary" style="margin-top:16px" onclick="showProgressForm('${x.id}')">Add Progress Update</button>` : ''}
               <button type="button" class="btn secondary" style="margin-top:16px" onclick="viewHistory('${x.id}')">View History</button>
@@ -1854,6 +1892,7 @@ window.showRepairForm = showRepairForm;
 window.completeRepair = completeRepair;
 
 init();
+
 
 
 
