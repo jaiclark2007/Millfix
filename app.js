@@ -994,13 +994,13 @@ let selectedIssuePhotos = [];
 let pendingPhotoIssue = null;
 let photoSubmitting = false;
 
-const VIDEO_MAX_BYTES = 25000000;
+const VIDEO_MAX_BYTES = 50000000;
 const VIDEO_MAX_SECONDS = 30;
 function isVideoName(name) { return /[.](mp4|mov|webm)$/i.test(name); }
 function mediaPickerHtml() {
   return `<div class="field">
     <label>Photos / Video (optional)</label>
-    <p class="muted" style="margin:6px 0 10px">5 photos (10 MB each) · 1 video (30 sec / 25 MB max)</p>
+    <p class="muted" style="margin:6px 0 10px">5 photos (10 MB each) · 1 video (30 sec / 50 MB max)</p>
     <div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px">
       <button type="button" class="btn secondary" onclick="openMediaCapture()">Take Photo / Video</button>
       <button type="button" class="btn secondary" onclick="document.getElementById('mediaGallery').click()">Choose from Gallery</button>
@@ -1013,7 +1013,7 @@ function mediaPickerHtml() {
       <div style="display:grid;gap:12px">
         <button type="button" class="btn primary" onclick="captureIssueMedia('photoCamera')">Take Photo</button>
         <button type="button" class="btn primary" onclick="captureIssueMedia('videoCamera')">Record Video</button>
-        <p class="muted" style="margin:0">Stop recording within 30 seconds. Maximum video size: 25 MB.</p>
+        <p class="muted" style="margin:0">Stop recording within 30 seconds. Maximum video size: 50 MB.</p>
         <button type="button" class="btn secondary" onclick="document.getElementById('mediaCaptureChoice').close()">Cancel</button>
       </div>
     </dialog>
@@ -1062,7 +1062,7 @@ async function selectIssueVideo(input) {
   const rejectVideo=text=>{ if(message) message.textContent=text; alert(text); };
   if(!file.size) { rejectVideo('This recording is empty (0 bytes). Please record it again.'); return; }
   if(file.size>VIDEO_MAX_BYTES) {
-    rejectVideo('This video is '+(file.size/1000000).toFixed(2)+' MB ('+file.size.toLocaleString()+' bytes), over the 25 MB limit. Even a 10-second recording can exceed the limit at high quality. Choose a lower recording quality or a smaller clip. The video has not been uploaded.');
+    rejectVideo('This video is '+(file.size/1000000).toFixed(2)+' MB ('+file.size.toLocaleString()+' bytes), over the 50 MB limit. Even a 10-second recording can exceed the limit at high quality. Choose a lower recording quality or a smaller clip. The video has not been uploaded.');
     return;
   }
   const extension={'video/mp4':'mp4','video/quicktime':'mov','video/webm':'webm'}[file.type];
@@ -1083,7 +1083,7 @@ async function uploadIssueAttachment(bucket,path,file,message) {
     const signed=await sb.storage.from(bucket).createSignedUploadUrl(path);
     if(signed.error) return {error:signed.error};
     await new Promise((resolve,reject)=>{
-      const xhr=new XMLHttpRequest(); xhr.open('PUT',signed.data.signedUrl); xhr.timeout=300000;
+      const xhr=new XMLHttpRequest(); xhr.open('PUT',signed.data.signedUrl); xhr.timeout=600000;
       xhr.upload.onprogress=event=>{
         if(message && event.lengthComputable) message.textContent=`Uploading video: ${Math.min(100,Math.round(event.loaded/event.total*100))}% — keep this page open.`;
       };
