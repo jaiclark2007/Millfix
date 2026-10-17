@@ -174,6 +174,7 @@ async function login() {
 }
 
 async function logout() {
+  if (!canLeavePhotoReport()) return;
   await sb.auth.signOut();
   user = null;
   loginScreen();
@@ -311,6 +312,7 @@ function issueHtml(x) {
   Updated ${new Date(x.updated_at || x.created_at).toLocaleString()}
 </div>
 
+      ${photoViewerHtml(x)}
       ${repairSection}
       
     <button class="btn" onclick="viewHistory('${x.id}')">
@@ -345,6 +347,7 @@ async function viewHistory(issueId) {
         ${issue ? issue.title : 'Equipment Issue'}
       </h3>
 
+      ${issue ? photoViewerHtml(issue) : ''}
       ${
         history.length
           ? history.map(h => `
@@ -389,6 +392,7 @@ async function viewHistory(issueId) {
 }
 
 async function home() {
+  if (!canLeavePhotoReport()) return;
   setActive('home');
   await loadIssues();
 
@@ -446,6 +450,7 @@ async function home() {
   `;
 }
 function adminPanel() {
+  if (!canLeavePhotoReport()) return;
   if (currentProfile?.role !== 'admin') {
     alert('Administrator access required.');
     home();
@@ -542,6 +547,7 @@ async function resetEmployeePin() {
   document.getElementById('adminNewPin').value = '';
 }
 async function archive() {
+  if (!canLeavePhotoReport()) return;
   setActive('archive');
   await loadIssues();
 
@@ -870,7 +876,107 @@ function renderArchiveResults() {
     </button>
   `;
 }
+
+function canLeavePhotoReport() {
+  if (photoSubmitting) { alert('Please wait for the upload to finish.'); return false; }
+  if (pendingPhotoIssue && !confirm('Your issue is saved, but some photos have not uploaded. Leave without the remaining photos?')) return false;
+  return true;
+}
+// Photos remain private; access is checked against the related issue in Storage RLS.
+let selectedIssuePhotos = [];
+let pendingPhotoIssue = null;
+let photoSubmitting = false;
+function clearSelectedPhotos() {
+  selectedIssuePhotos.forEach(photo => URL.revokeObjectURL(photo.preview));
+  selectedIssuePhotos = [];
+}
+function selectIssuePhotos(input) {
+  if (photoSubmitting || pendingPhotoIssue) { input.value = ''; return; }
+  for (const file of Array.from(input.files || [])) {
+    if (selectedIssuePhotos.length >= 5) { alert('You can attach up to 5 photos.'); break; }
+    if (!['image/jpeg','image/png','image/webp'].includes(file.type) || file.size > 10485760 || !file.size) {
+      alert('Choose a JPEG, PNG or WebP photo no larger than 10 MB.'); continue;
+    }
+    const extension = {'image/jpeg':'jpg','image/png':'png','image/webp':'webp'}[file.type];
+    selectedIssuePhotos.push({file, preview:URL.createObjectURL(file), name:crypto.randomUUID()+'.'+extension, uploaded:false});
+  }
+  input.value = '';
+  renderPhotoPreviews();
+}
+function renderPhotoPreviews() {
+  const box = document.getElementById('photoPreviews');
+  if (!box) return;
+  box.replaceChildren();
+  selectedIssuePhotos.forEach((photo, index) => {
+    const card = document.createElement('div');
+    const img = document.createElement('img');
+    img.src = photo.preview; img.alt = 'Selected photo ' + (index+1);
+    img.style.cssText = 'width:120px;height:100px;object-fit:cover;border-radius:8px;display:block';
+    const remove = document.createElement('button');
+    remove.type = 'button'; remove.className = 'btn secondary'; remove.textContent = 'Remove';
+    remove.onclick = () => {
+      if (photoSubmitting || pendingPhotoIssue) return;
+      URL.revokeObjectURL(photo.preview); selectedIssuePhotos.splice(index,1); renderPhotoPreviews();
+    };
+    card.append(img,remove); box.append(card);
+  });
+}
+async function uploadSelectedPhotos(issue) {
+  for (let i=0; i<selectedIssuePhotos.length; i++) {
+    const photo = selectedIssuePhotos[i];
+    if (photo.uploaded) continue;
+    const progress = document.getElementById('photoProgress');
+    if (progress) progress.textContent = 'Uploading photo ' + (i+1) + ' of ' + selectedIssuePhotos.length + '…';
+    const path = user.id + '/' + issue.id + '/' + photo.name;
+    const {error} = await sb.storage.from('issue-photos').upload(path, photo.file, {contentType:photo.file.type, upsert:false});
+    if (error) {
+      // A lost response can occur after a successful upload. Confirm before retrying.
+      const check = await sb.storage.from('issue-photos').list(user.id + '/' + issue.id, {search:photo.name,limit:10});
+      if (check.error || !(check.data || []).some(item => item.name === photo.name)) throw error;
+    }
+    photo.uploaded = true;
+  }
+}
+function showPhotoIssueSuccess(issue) {
+  const count = selectedIssuePhotos.length;
+  clearSelectedPhotos(); pendingPhotoIssue = null;
+  document.getElementById('view').innerHTML = `<div class="card"><div class="notice"><strong>Issue submitted.</strong><br>MillFix issue #${Number(issue.issue_number)} was saved with ${count} photo${count===1?'':'s'}.</div><button class="btn primary" onclick="home()">Back to Home</button></div>`;
+}
+function photoViewerHtml(issue) {
+  return `<button type="button" class="btn secondary" onclick="viewIssuePhotos('${issue.id}',this)">View Photos</button><div class="issue-photos" style="display:flex;flex-wrap:wrap;gap:12px" aria-live="polite"></div>`;
+}
+async function viewIssuePhotos(issueId, button) {
+  const box = button.nextElementSibling;
+  button.disabled = true; box.textContent = 'Loading photos…';
+  try {
+    const issue = issues.find(item => item.id === issueId);
+    if (!issue) throw new Error('Refresh the issue and try again.');
+    const folder = issue.reported_by + '/' + issue.id;
+    const listing = await sb.storage.from('issue-photos').list(folder, {limit:100,sortBy:{column:'created_at',order:'asc'}});
+    if (listing.error) throw listing.error;
+    box.replaceChildren();
+    const photos = (listing.data || []).filter(item => item.id);
+    if (!photos.length) box.textContent = 'No photos attached.';
+    for (const photo of photos) {
+      const signed = await sb.storage.from('issue-photos').createSignedUrl(folder+'/'+photo.name, 600);
+      if (signed.error) throw signed.error;
+      const link = document.createElement('a'); link.href = signed.data.signedUrl; link.target = '_blank'; link.rel = 'noopener noreferrer';
+      const img = document.createElement('img'); img.src = signed.data.signedUrl; img.alt = 'Issue photo — tap to enlarge'; img.loading = 'lazy';
+      img.style.cssText = 'width:140px;height:120px;object-fit:cover;border-radius:8px';
+      link.append(img); box.append(link);
+    }
+  } catch(error) { box.textContent = 'Photos could not be loaded. '+error.message; }
+  finally { button.disabled = false; }
+}
+window.addEventListener('beforeunload', event => {
+  if (photoSubmitting || pendingPhotoIssue) { event.preventDefault(); event.returnValue = ''; }
+});
+
 async function report() {
+  if (!canLeavePhotoReport()) return;
+  if (photoSubmitting) return;
+  clearSelectedPhotos();
+  pendingPhotoIssue = null;
   setActive('report');
 
   document.getElementById('view').innerHTML = `
@@ -940,7 +1046,17 @@ async function report() {
         ></textarea>
       </div>
 
-      <button class="btn primary" onclick="submitIssue()">
+      <div class="field">
+        <label>Photos (optional)</label>
+        <p class="muted">Up to 5 photos, 10 MB each. JPEG, PNG or WebP.</p>
+        <button type="button" class="btn secondary" onclick="document.getElementById('photoCamera').click()">Take Photo</button>
+        <button type="button" class="btn secondary" onclick="document.getElementById('photoGallery').click()">Choose from Gallery</button>
+        <input id="photoCamera" type="file" accept="image/jpeg,image/png,image/webp" capture="environment" hidden onchange="selectIssuePhotos(this)">
+        <input id="photoGallery" type="file" accept="image/jpeg,image/png,image/webp" multiple hidden onchange="selectIssuePhotos(this)">
+        <div id="photoPreviews" style="display:flex;flex-wrap:wrap;gap:12px"></div>
+        <p id="photoProgress" role="status" aria-live="polite"></p>
+      </div>
+      <button id="submitIssueButton" class="btn primary" onclick="submitIssue()">
         Submit Issue
       </button>
     </div>
@@ -1021,6 +1137,31 @@ function showComponentSuggestions() {
 }
 
 async function submitIssue() {
+  if (photoSubmitting) return;
+  photoSubmitting = true;
+  const submitButton = document.getElementById('submitIssueButton');
+  if (submitButton) submitButton.disabled = true;
+  try { await submitIssueWithPhotos(); }
+  catch (error) {
+    const message = pendingPhotoIssue
+      ? 'Issue #' + pendingPhotoIssue.issue_number + ' is saved, but some photos could not upload. Keep this page open and tap Retry Photos. ' + error.message
+      : 'Issue could not be submitted. ' + error.message;
+    const progress = document.getElementById('photoProgress');
+    if (progress) progress.textContent = message;
+  } finally {
+    photoSubmitting = false;
+    if (submitButton && submitButton.isConnected) {
+      submitButton.disabled = false;
+      submitButton.textContent = pendingPhotoIssue ? 'Retry Photos' : 'Submit Issue';
+    }
+  }
+}
+async function submitIssueWithPhotos() {
+  if (pendingPhotoIssue) {
+    await uploadSelectedPhotos(pendingPhotoIssue);
+    showPhotoIssueSuccess(pendingPhotoIssue);
+    return;
+  }
   const equipmentName = document.getElementById('eq').value;
   const componentName = document.getElementById('component').value.trim();
   const priority = document.getElementById('priority').value;
@@ -1084,21 +1225,14 @@ if (componentName) {
     }
   }
 }  
-  document.getElementById('view').innerHTML = `
-    <div class="card">
-      <div class="notice">
-        <strong>Issue submitted.</strong><br>
-        MillFix issue #${data.issue_number} was saved to the shared database.
-      </div>
-
-      <button class="btn primary" onclick="home()">
-        Back to Home
-      </button>
-    </div>
-  `;
+  pendingPhotoIssue = data;
+  document.querySelectorAll('#view input, #view select, #view textarea').forEach(el => el.disabled = true);
+  await uploadSelectedPhotos(data);
+  showPhotoIssueSuccess(data);
 }
 
 async function queue() {
+  if (!canLeavePhotoReport()) return;
   setActive('maintenance');
   await loadIssues();
 await loadMaintenanceEmployees();
@@ -1135,6 +1269,7 @@ if (profilesError) {
                 ${x.description || ''}
               </div>
 
+              ${photoViewerHtml(x)}
               <div class="field">
                 <label>Status</label>
 
@@ -1460,3 +1595,4 @@ window.showRepairForm = showRepairForm;
 window.completeRepair = completeRepair;
 
 init();
+
