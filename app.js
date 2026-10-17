@@ -881,6 +881,7 @@ function renderArchiveResults() {
 }
 
 function canLeavePhotoReport() {
+  if (photosPreparing) { alert('Please wait while the photos are prepared.'); return false; }
   if (progressSaving) { alert('Please wait for the progress update to finish.'); return false; }
   if (progressDraft) {
     if (progressDraft.started) { alert('Please retry saving this progress update before leaving.'); return false; }
@@ -899,18 +900,48 @@ function clearSelectedPhotos() {
   selectedIssuePhotos.forEach(photo => URL.revokeObjectURL(photo.preview));
   selectedIssuePhotos = [];
 }
-function selectIssuePhotos(input) {
-  if (photoSubmitting || pendingPhotoIssue || progressSaving || progressDraft?.started) { input.value = ''; return; }
-  for (const file of Array.from(input.files || [])) {
-    if (selectedIssuePhotos.length >= 5) { alert('You can attach up to 5 photos.'); break; }
-    if (!['image/jpeg','image/png','image/webp'].includes(file.type) || file.size > 10485760 || !file.size) {
-      alert('Choose a JPEG, PNG or WebP photo no larger than 10 MB.'); continue;
+let photosPreparing = false;
+async function optimizeIssuePhoto(file) {
+  // Keep small images intact; shrink camera photos without enlarging them.
+  if (file.size <= 350 * 1024) return file;
+  const source = URL.createObjectURL(file);
+  try {
+    const img = new Image();
+    await new Promise((resolve,reject) => { img.onload=resolve; img.onerror=reject; img.src=source; });
+    const scale = Math.min(1, 2048 / Math.max(img.naturalWidth,img.naturalHeight));
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1,Math.round(img.naturalWidth*scale));
+    canvas.height = Math.max(1,Math.round(img.naturalHeight*scale));
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle='#fff'; ctx.fillRect(0,0,canvas.width,canvas.height);
+    ctx.drawImage(img,0,0,canvas.width,canvas.height);
+    const blob = await new Promise(resolve => canvas.toBlob(resolve,'image/jpeg',0.85));
+    canvas.width=canvas.height=1;
+    return blob && blob.size < file.size ? blob : file;
+  } catch(error) {
+    // Unsupported decoding or low memory must not prevent a valid upload.
+    return file;
+  } finally { URL.revokeObjectURL(source); }
+}
+async function selectIssuePhotos(input) {
+  if (photosPreparing || photoSubmitting || pendingPhotoIssue || progressSaving || progressDraft?.started) { input.value = ''; return; }
+  const files=Array.from(input.files || []); input.value='';
+  photosPreparing=true;
+  const progress=document.getElementById('photoProgress');
+  try {
+    for (const original of files) {
+      if (selectedIssuePhotos.length >= 5) { alert('You can attach up to 5 photos.'); break; }
+      if (!['image/jpeg','image/png','image/webp'].includes(original.type) || original.size > 10485760 || !original.size) {
+        alert('Choose a JPEG, PNG or WebP photo no larger than 10 MB.'); continue;
+      }
+      if(progress) progress.textContent='Preparing photo for faster upload…';
+      const file=await optimizeIssuePhoto(original);
+      const extension = {'image/jpeg':'jpg','image/png':'png','image/webp':'webp'}[file.type];
+      selectedIssuePhotos.push({file, preview:URL.createObjectURL(file), name:crypto.randomUUID()+'.'+extension, uploaded:false});
+      renderPhotoPreviews();
     }
-    const extension = {'image/jpeg':'jpg','image/png':'png','image/webp':'webp'}[file.type];
-    selectedIssuePhotos.push({file, preview:URL.createObjectURL(file), name:crypto.randomUUID()+'.'+extension, uploaded:false});
-  }
-  input.value = '';
-  renderPhotoPreviews();
+    if(progress) progress.textContent=selectedIssuePhotos.length ? 'Photos ready to upload.' : '';
+  } finally { photosPreparing=false; }
 }
 function renderPhotoPreviews() {
   const box = document.getElementById('photoPreviews');
@@ -954,6 +985,22 @@ function showPhotoIssueSuccess(issue) {
 function photoViewerHtml(issue) {
   return `<button type="button" class="btn secondary" onclick="viewIssuePhotos('${issue.id}',this)">View Photos</button><div class="issue-photos" style="display:flex;flex-wrap:wrap;gap:12px" aria-live="polite"></div>`;
 }
+async function appendPhotoBatch(box,bucket,paths) {
+  if(!paths.length) return;
+  const {data,error}=await sb.storage.from(bucket).createSignedUrls(paths,600);
+  if(error) throw error;
+  for(const photo of data || []) {
+    if(photo.error || !photo.signedUrl) {
+      const errorText=document.createElement('p'); errorText.textContent='A photo could not be loaded. Tap View Photos to retry.'; box.append(errorText); continue;
+    }
+    const link=document.createElement('a'); link.href=photo.signedUrl; link.target='_blank'; link.rel='noopener noreferrer';
+    const img=document.createElement('img'); img.alt='Issue photo — tap to enlarge'; img.loading='eager'; img.decoding='async';
+    img.style.cssText='width:140px;height:120px;object-fit:cover;border-radius:8px;background:#e9eef6';
+    img.onerror=()=>{ img.alt='Photo could not load. Tap to retry opening it.'; };
+    img.src=photo.signedUrl; link.append(img); box.append(link);
+  }
+}
+
 async function viewIssuePhotos(issueId, button) {
   const box = button.nextElementSibling;
   button.disabled = true; box.textContent = 'Loading photos…';
@@ -966,14 +1013,7 @@ async function viewIssuePhotos(issueId, button) {
     box.replaceChildren();
     const photos = (listing.data || []).filter(item => item.id);
     if (!photos.length) box.textContent = 'No original report photos attached.';
-    for (const photo of photos) {
-      const signed = await sb.storage.from('issue-photos').createSignedUrl(folder+'/'+photo.name, 600);
-      if (signed.error) throw signed.error;
-      const link = document.createElement('a'); link.href = signed.data.signedUrl; link.target = '_blank'; link.rel = 'noopener noreferrer';
-      const img = document.createElement('img'); img.src = signed.data.signedUrl; img.alt = 'Issue photo — tap to enlarge'; img.loading = 'lazy';
-      img.style.cssText = 'width:140px;height:120px;object-fit:cover;border-radius:8px';
-      link.append(img); box.append(link);
-    }
+    await appendPhotoBatch(box,'issue-photos',photos.map(photo=>folder+'/'+photo.name));
     const updates = await sb.from('issue_progress_updates').select('*').eq('issue_id',issueId).order('created_at');
     if (updates.error) throw updates.error;
     for (const update of updates.data || []) {
@@ -984,7 +1024,7 @@ async function viewIssuePhotos(issueId, button) {
   finally { button.disabled = false; }
 }
 window.addEventListener('beforeunload', event => {
-  if (photoSubmitting || pendingPhotoIssue || progressSaving || progressDraft?.started) { event.preventDefault(); event.returnValue = ''; }
+  if (photosPreparing || photoSubmitting || pendingPhotoIssue || progressSaving || progressDraft?.started) { event.preventDefault(); event.returnValue = ''; }
 });
 
 
@@ -1007,14 +1047,7 @@ async function viewProgressPhotos(updateId, button) {
     const {data:update,error} = await sb.from('issue_progress_updates').select('*').eq('id',updateId).single();
     if(error) throw error;
     box.replaceChildren();
-    for(const name of update.photo_names) {
-      const path = `${update.issue_id}/${update.author_id}/${update.id}/${name}`;
-      const signed = await sb.storage.from('issue-progress-photos').createSignedUrl(path,600);
-      if(signed.error) throw signed.error;
-      const link = document.createElement('a'); link.href=signed.data.signedUrl; link.target='_blank'; link.rel='noopener noreferrer';
-      const img = document.createElement('img'); img.src=signed.data.signedUrl; img.alt='Progress photo — tap to enlarge'; img.loading='lazy';
-      img.style.cssText='width:140px;height:120px;object-fit:cover;border-radius:8px'; link.append(img); box.append(link);
-    }
+    await appendPhotoBatch(box,'issue-progress-photos',update.photo_names.map(name=>`${update.issue_id}/${update.author_id}/${update.id}/${name}`));
   } catch(error) { box.textContent='Photos could not be loaded. '+error.message; }
   finally { button.disabled=false; }
 }
@@ -1040,6 +1073,7 @@ function showProgressForm(issueId) {
     </div>`;
 }
 async function saveProgressUpdate() {
+  if (photosPreparing) { alert('Please wait while the photos are prepared.'); return; }
   if(progressSaving || !progressDraft || !canManageIssuesUI()) return;
   const draft=progressDraft;
   if(!draft.started) {
@@ -1242,6 +1276,7 @@ function showComponentSuggestions() {
 }
 
 async function submitIssue() {
+  if (photosPreparing) { alert('Please wait while the photos are prepared.'); return; }
   if (photoSubmitting) return;
   photoSubmitting = true;
   const submitButton = document.getElementById('submitIssueButton');
@@ -1702,5 +1737,6 @@ window.showRepairForm = showRepairForm;
 window.completeRepair = completeRepair;
 
 init();
+
 
 
