@@ -237,7 +237,7 @@ async function loadDepartments() {
 async function loadProfiles() {
   const { data, error } = await sb
     .from('profiles')
-    .select('id, full_name, role');
+    .select('id, full_name, role, check_number');
 
   if (error) {
     console.error(error);
@@ -565,7 +565,9 @@ function adminPanel() {
 
   document.getElementById('view').innerHTML = `
     <div class="card">
-      <h2>Admin — Reset Employee PIN</h2>
+      <h2>Administrator</h2>
+      <button type="button" class="btn primary" onclick="showAddEmployee()">Add Employee</button>
+      <h3 style="margin-top:24px">Reset Employee PIN</h3>
 
       <p class="muted">
         Reset the 6-digit PIN for an Operator, Maintenance, or Supervisor account.
@@ -579,7 +581,7 @@ function adminPanel() {
 
           ${resettableUsers.map(p => `
             <option value="${p.id}">
-              ${p.full_name} — ${p.role}
+              ${escapeProgress(p.full_name)}${p.check_number ? ' · '+escapeProgress(p.check_number) : ''} — ${p.role === 'employee' ? 'Operator' : escapeProgress(p.role)}
             </option>
           `).join('')}
         </select>
@@ -606,6 +608,59 @@ function adminPanel() {
     </div>
   `;
 }
+let creatingEmployee = false;
+let employeeSetupRequestId = null;
+function showAddEmployee() {
+  if (currentProfile?.role !== 'admin' || !canLeavePhotoReport()) return;
+  setActive('admin'); employeeSetupRequestId=null;
+  document.getElementById('view').innerHTML=`<div class="card">
+    <h2>Add Employee</h2>
+    <p class="muted">Create a check-number login. Give the initial PIN directly to the employee; they can change it after signing in.</p>
+    <form id="addEmployeeForm" onsubmit="event.preventDefault(); createEmployeeAccount()" oninput="employeeSetupRequestId=null">
+      <div class="field"><label for="employeeFullName">Full name</label><input id="employeeFullName" autocomplete="off" maxlength="100" required></div>
+      <div class="field"><label for="employeeCheckNumber">Check number</label><input id="employeeCheckNumber" type="text" inputmode="numeric" autocomplete="off" maxlength="5" pattern="[0-9]{5}" placeholder="5 digits" required></div>
+      <div class="field"><label for="employeeRole">Role</label><select id="employeeRole"><option value="employee">Operator</option><option value="maintenance">Maintenance</option><option value="supervisor">Supervisor</option></select></div>
+      <div class="field"><label for="employeeInitialPin">Initial PIN</label><input id="employeeInitialPin" type="password" inputmode="numeric" autocomplete="new-password" maxlength="6" pattern="[0-9]{6}" placeholder="6 digits" required></div>
+      <div class="field"><label for="employeeConfirmPin">Confirm initial PIN</label><input id="employeeConfirmPin" type="password" inputmode="numeric" autocomplete="new-password" maxlength="6" pattern="[0-9]{6}" placeholder="Repeat the PIN" required></div>
+      <p id="employeeSetupStatus" role="status" aria-live="polite"></p>
+      <button id="employeeCreateButton" class="btn primary" type="submit">Create Employee Account</button>
+    </form>
+    <button type="button" class="btn secondary" style="margin-top:16px" onclick="adminPanel()">Back to Admin</button>
+  </div>`;
+}
+async function createEmployeeAccount() {
+  if(creatingEmployee || currentProfile?.role!=='admin') return;
+  const form=document.getElementById('addEmployeeForm');
+  const status=document.getElementById('employeeSetupStatus');
+  const full_name=document.getElementById('employeeFullName').value.trim();
+  const check_number=document.getElementById('employeeCheckNumber').value.trim();
+  const role=document.getElementById('employeeRole').value;
+  const pin=document.getElementById('employeeInitialPin').value;
+  const confirm=document.getElementById('employeeConfirmPin').value;
+  if(!full_name || full_name.length>100) {status.textContent='Enter the employee’s full name (up to 100 characters).';return;}
+  if(!/^[0-9]{5}$/.test(check_number)) {status.textContent='Enter a five-digit check number.';return;}
+  if(!['employee','maintenance','supervisor'].includes(role)) {status.textContent='Choose an employee role.';return;}
+  if(!/^[0-9]{6}$/.test(pin)) {status.textContent='The PIN must contain exactly six digits.';return;}
+  if(pin!==confirm) {status.textContent='The PINs do not match.';return;}
+  employeeSetupRequestId ||= crypto.randomUUID();
+  creatingEmployee=true;
+  const controls=Array.from(form.querySelectorAll('input,select,button'));
+  controls.forEach(control=>control.disabled=true);status.textContent='Creating employee account…';
+  try {
+    const {data,error}=await sb.functions.invoke('create-employee',{body:{full_name,check_number,role,pin,request_id:employeeSetupRequestId}});
+    if(error) {
+      let detail='Account creation could not be confirmed. Retry with the same details.';
+      try { const body=await error.context?.json(); if(body?.error) detail=body.error; } catch {}
+      throw new Error(detail);
+    }
+    if(!data?.success) throw new Error(data?.error || 'Account creation could not be confirmed. Please retry.');
+    form.reset(); employeeSetupRequestId=null;
+    status.textContent=`Account created for ${data.full_name} — check number ${data.check_number}. They can sign in with the PIN you set.`;
+    await loadProfiles();
+  } catch(error) {status.textContent=error.message;}
+  finally {creatingEmployee=false;controls.forEach(control=>control.disabled=false);}
+}
+
 async function resetEmployeePin() {
   if (currentProfile?.role !== 'admin') {
     alert('Administrator access required.');
@@ -978,6 +1033,7 @@ function renderArchiveResults() {
 }
 
 function canLeavePhotoReport() {
+  if (creatingEmployee) { alert('Please wait for employee setup to finish.'); return false; }
   if (photosPreparing) { alert('Please wait while the photos are prepared.'); return false; }
   if (progressSaving) { alert('Please wait for the progress update to finish.'); return false; }
   if (progressDraft) {
@@ -1254,7 +1310,7 @@ async function viewIssuePhotos(issueId, button) {
   finally { button.disabled = false; }
 }
 window.addEventListener('beforeunload', event => {
-  if (photosPreparing || photoSubmitting || pendingPhotoIssue || progressSaving || progressDraft?.started) { event.preventDefault(); event.returnValue = ''; }
+  if (creatingEmployee || photosPreparing || photoSubmitting || pendingPhotoIssue || progressSaving || progressDraft?.started) { event.preventDefault(); event.returnValue = ''; }
 });
 
 
@@ -1961,6 +2017,7 @@ window.showRepairForm = showRepairForm;
 window.completeRepair = completeRepair;
 
 init();
+
 
 
 
