@@ -1058,14 +1058,20 @@ async function selectIssueVideo(input) {
   if(photosPreparing || photoSubmitting || pendingPhotoIssue || progressSaving || progressDraft?.started) { input.value=''; return; }
   const file=input.files?.[0]; input.value=''; if(!file) return;
   if(selectedIssuePhotos.some(p=>isVideoName(p.name))) { alert('One video is allowed per report or update. Remove the selected video to replace it.'); return; }
-  if(!file.size || file.size>VIDEO_MAX_BYTES) { alert('Video must be 25 MB or smaller. Trim the clip or record a shorter one.'); return; }
+  const message=document.getElementById('photoProgress');
+  const rejectVideo=text=>{ if(message) message.textContent=text; alert(text); };
+  if(!file.size) { rejectVideo('This recording is empty (0 bytes). Please record it again.'); return; }
+  if(file.size>VIDEO_MAX_BYTES) {
+    rejectVideo('This video is '+(file.size/1000000).toFixed(2)+' MB ('+file.size.toLocaleString()+' bytes), over the 25 MB limit. Even a 10-second recording can exceed the limit at high quality. Choose a lower recording quality or a smaller clip. The video has not been uploaded.');
+    return;
+  }
   const extension={'video/mp4':'mp4','video/quicktime':'mov','video/webm':'webm'}[file.type];
-  if(!extension) { alert('Choose an MP4, MOV or WebM video.'); return; }
-  const message=document.getElementById('photoProgress'); photosPreparing=true;
+  if(!extension) { rejectVideo('This recording reports an unsupported format: '+(file.type || 'unknown')+'. Choose an MP4, MOV or WebM video. File: '+(file.name || 'recording')); return; }
+  photosPreparing=true;
   try {
     if(message) message.textContent='Checking video length…';
     const duration=await readVideoDuration(file);
-    if(duration>VIDEO_MAX_SECONDS) throw new Error('Video must be 30 seconds or shorter. Trim the clip and select it again.');
+    if(duration>VIDEO_MAX_SECONDS) throw new Error('The phone reports this video as '+duration.toFixed(2)+' seconds. The limit is 30 seconds. Trim the clip and select it again.');
     selectedIssuePhotos.push({file,duration,preview:URL.createObjectURL(file),name:crypto.randomUUID()+'.'+extension,uploaded:false});
     renderPhotoPreviews(); if(message) message.textContent='Video ready to upload.';
   } catch(error) { if(message) message.textContent=error.message; alert(error.message); }
