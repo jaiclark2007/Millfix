@@ -889,13 +889,101 @@ function canLeavePhotoReport() {
     progressDraft = null; clearSelectedPhotos();
   }
   if (photoSubmitting) { alert('Please wait for the upload to finish.'); return false; }
-  if (pendingPhotoIssue && !confirm('Your issue is saved, but some photos have not uploaded. Leave without the remaining photos?')) return false;
+  if (pendingPhotoIssue && !confirm('Your issue is saved, but some attachments have not uploaded. Leave without the remaining attachments?')) return false;
   return true;
 }
 // Photos remain private; access is checked against the related issue in Storage RLS.
 let selectedIssuePhotos = [];
 let pendingPhotoIssue = null;
 let photoSubmitting = false;
+
+const VIDEO_MAX_BYTES = 25000000;
+const VIDEO_MAX_SECONDS = 30;
+function isVideoName(name) { return /[.](mp4|mov|webm)$/i.test(name); }
+function videoPickerHtml() {
+  return `<div style="margin-top:20px"><label>Video (optional)</label>
+    <p class="muted">One video per report or update. Maximum 30 seconds and 25 MB. MP4, MOV or WebM. Choose a shorter clip if it is too large.</p>
+    <button type="button" class="btn secondary" onclick="document.getElementById('videoCamera').click()">Record Video</button>
+    <button type="button" class="btn secondary" style="margin-top:12px" onclick="document.getElementById('videoGallery').click()">Choose Video</button>
+    <input id="videoCamera" type="file" accept="video/mp4,video/quicktime,video/webm" capture="environment" hidden onchange="selectIssueVideo(this)">
+    <input id="videoGallery" type="file" accept="video/mp4,video/quicktime,video/webm" hidden onchange="selectIssueVideo(this)">
+    <p class="muted">Recording does not stop automatically at 30 seconds. Shorter clips upload faster. Playback depends on your device's video format support.</p>
+  </div>`;
+}
+function readVideoDuration(file) {
+  return new Promise((resolve,reject)=>{
+    const video=document.createElement('video'); const url=URL.createObjectURL(file);
+    const finish=(error,duration)=>{ clearTimeout(timer); video.onloadedmetadata=null; video.onerror=null; video.removeAttribute('src'); video.load(); URL.revokeObjectURL(url); error ? reject(error) : resolve(duration); };
+    const timer=setTimeout(()=>finish(new Error('The video could not be checked. Try a short MP4 clip.')),15000);
+    video.preload='metadata'; video.muted=true; video.playsInline=true;
+    video.onloadedmetadata=()=>{
+      const duration=video.duration;
+      if(!Number.isFinite(duration) || duration<=0) finish(new Error('The video length could not be checked. Try another clip.'));
+      else finish(null,duration);
+    };
+    video.onerror=()=>finish(new Error('This video cannot be read on this device. Try an MP4 clip.'));
+    video.src=url;
+  });
+}
+async function selectIssueVideo(input) {
+  if(photosPreparing || photoSubmitting || pendingPhotoIssue || progressSaving || progressDraft?.started) { input.value=''; return; }
+  const file=input.files?.[0]; input.value=''; if(!file) return;
+  if(selectedIssuePhotos.some(p=>isVideoName(p.name))) { alert('One video is allowed per report or update. Remove the selected video to replace it.'); return; }
+  if(!file.size || file.size>VIDEO_MAX_BYTES) { alert('Video must be 25 MB or smaller. Trim the clip or record a shorter one.'); return; }
+  const extension={'video/mp4':'mp4','video/quicktime':'mov','video/webm':'webm'}[file.type];
+  if(!extension) { alert('Choose an MP4, MOV or WebM video.'); return; }
+  const message=document.getElementById('photoProgress'); photosPreparing=true;
+  try {
+    if(message) message.textContent='Checking video length…';
+    const duration=await readVideoDuration(file);
+    if(duration>VIDEO_MAX_SECONDS) throw new Error('Video must be 30 seconds or shorter. Trim the clip and select it again.');
+    selectedIssuePhotos.push({file,duration,preview:URL.createObjectURL(file),name:crypto.randomUUID()+'.'+extension,uploaded:false});
+    renderPhotoPreviews(); if(message) message.textContent='Video ready to upload.';
+  } catch(error) { if(message) message.textContent=error.message; alert(error.message); }
+  finally { photosPreparing=false; }
+}
+async function uploadIssueAttachment(bucket,path,file,message) {
+  if(!file.type.startsWith('video/')) return sb.storage.from(bucket).upload(path,file,{contentType:file.type,upsert:false});
+  try {
+    const signed=await sb.storage.from(bucket).createSignedUploadUrl(path);
+    if(signed.error) return {error:signed.error};
+    await new Promise((resolve,reject)=>{
+      const xhr=new XMLHttpRequest(); xhr.open('PUT',signed.data.signedUrl); xhr.timeout=300000;
+      xhr.upload.onprogress=event=>{
+        if(message && event.lengthComputable) message.textContent=`Uploading video: ${Math.min(100,Math.round(event.loaded/event.total*100))}% — keep this page open.`;
+      };
+      xhr.onload=()=>xhr.status>=200 && xhr.status<300 ? resolve() : reject(new Error('Video upload failed ('+xhr.status+'). Please retry.'));
+      xhr.onerror=()=>reject(new Error('Connection interrupted. Please retry the upload.'));
+      xhr.ontimeout=()=>reject(new Error('Upload timed out. Please retry on a stronger connection.'));
+      const body=new FormData(); body.append('cacheControl','3600'); body.append('',file,path.split('/').pop()); xhr.send(body);
+    });
+    return {error:null};
+  } catch(error) { return {error}; }
+}
+async function appendVideoButtons(box,bucket,paths) {
+  for(const path of paths) {
+    const card=document.createElement('div'); card.style.cssText='width:100%;margin-top:12px';
+    const play=document.createElement('button'); play.type='button'; play.className='btn secondary'; play.textContent='Play Video';
+    const status=document.createElement('p'); status.className='muted'; status.setAttribute('role','status');
+    play.onclick=async()=>{
+      play.disabled=true; status.textContent='Loading video…';
+      try {
+        const signed=await sb.storage.from(bucket).createSignedUrl(path,600); if(signed.error) throw signed.error;
+        card.querySelector('video')?.remove(); card.querySelector('a')?.remove();
+        const video=document.createElement('video'); video.controls=true; video.playsInline=true; video.preload='none'; video.style.cssText='display:block;width:100%;max-height:420px;margin-top:12px;background:#111';
+        video.onerror=()=>{status.textContent='This device cannot play the video. Try opening it in another player.';play.disabled=false;play.textContent='Reload Video';};
+        video.onloadeddata=()=>{status.textContent='';};
+        video.src=signed.data.signedUrl;
+        const link=document.createElement('a'); link.href=signed.data.signedUrl; link.target='_blank'; link.rel='noopener noreferrer';link.textContent='Open video in another player';
+        card.append(video,link);
+        play.textContent='Reload Video'; play.disabled=false;
+        try { await video.play(); } catch { status.textContent='Tap the video play control to start.'; }
+      } catch(error) {status.textContent='Video could not be loaded. '+error.message; play.disabled=false;}
+    };
+    card.append(play,status);box.append(card);
+  }
+}
+
 function clearSelectedPhotos() {
   selectedIssuePhotos.forEach(photo => URL.revokeObjectURL(photo.preview));
   selectedIssuePhotos = [];
@@ -930,7 +1018,7 @@ async function selectIssuePhotos(input) {
   const progress=document.getElementById('photoProgress');
   try {
     for (const original of files) {
-      if (selectedIssuePhotos.length >= 5) { alert('You can attach up to 5 photos.'); break; }
+      if (selectedIssuePhotos.filter(p => !isVideoName(p.name)).length >= 5) { alert('You can attach up to 5 photos.'); break; }
       if (!['image/jpeg','image/png','image/webp'].includes(original.type) || original.size > 10485760 || !original.size) {
         alert('Choose a JPEG, PNG or WebP photo no larger than 10 MB.'); continue;
       }
@@ -949,7 +1037,8 @@ function renderPhotoPreviews() {
   box.replaceChildren();
   selectedIssuePhotos.forEach((photo, index) => {
     const card = document.createElement('div');
-    const img = document.createElement('img');
+    const img = document.createElement(isVideoName(photo.name) ? 'video' : 'img');
+    if(isVideoName(photo.name)) { img.controls=true; img.playsInline=true; img.preload='metadata'; }
     img.src = photo.preview; img.alt = 'Selected photo ' + (index+1);
     img.style.cssText = 'width:120px;height:100px;object-fit:cover;border-radius:8px;display:block';
     const remove = document.createElement('button');
@@ -958,7 +1047,8 @@ function renderPhotoPreviews() {
       if (photoSubmitting || pendingPhotoIssue || progressSaving || progressDraft?.started) return;
       URL.revokeObjectURL(photo.preview); selectedIssuePhotos.splice(index,1); renderPhotoPreviews();
     };
-    card.append(img,remove); box.append(card);
+    const caption=document.createElement('div'); caption.className='muted'; caption.textContent=isVideoName(photo.name) ? `Video · ${photo.duration.toFixed(1)} sec · ${(photo.file.size/1000000).toFixed(1)} MB` : 'Photo';
+    card.append(img,caption,remove); box.append(card);
   });
 }
 async function uploadSelectedPhotos(issue) {
@@ -966,12 +1056,13 @@ async function uploadSelectedPhotos(issue) {
     const photo = selectedIssuePhotos[i];
     if (photo.uploaded) continue;
     const progress = document.getElementById('photoProgress');
-    if (progress) progress.textContent = 'Uploading photo ' + (i+1) + ' of ' + selectedIssuePhotos.length + '…';
+    if (progress) progress.textContent = 'Uploading attachment ' + (i+1) + ' of ' + selectedIssuePhotos.length + '…';
     const path = user.id + '/' + issue.id + '/' + photo.name;
-    const {error} = await sb.storage.from('issue-photos').upload(path, photo.file, {contentType:photo.file.type, upsert:false});
+    const bucket=isVideoName(photo.name) ? 'issue-videos' : 'issue-photos';
+    const {error} = await uploadIssueAttachment(bucket,path,photo.file,progress);
     if (error) {
       // A lost response can occur after a successful upload. Confirm before retrying.
-      const check = await sb.storage.from('issue-photos').list(user.id + '/' + issue.id, {search:photo.name,limit:10});
+      const check = await sb.storage.from(bucket).list(user.id + '/' + issue.id, {search:photo.name,limit:10});
       if (check.error || !(check.data || []).some(item => item.name === photo.name)) throw error;
     }
     photo.uploaded = true;
@@ -980,10 +1071,10 @@ async function uploadSelectedPhotos(issue) {
 function showPhotoIssueSuccess(issue) {
   const count = selectedIssuePhotos.length;
   clearSelectedPhotos(); pendingPhotoIssue = null;
-  document.getElementById('view').innerHTML = `<div class="card"><div class="notice"><strong>Issue submitted.</strong><br>MillFix issue #${Number(issue.issue_number)} was saved with ${count} photo${count===1?'':'s'}.</div><button class="btn primary" onclick="home()">Back to Home</button></div>`;
+  document.getElementById('view').innerHTML = `<div class="card"><div class="notice"><strong>Issue submitted.</strong><br>MillFix issue #${Number(issue.issue_number)} was saved with ${count} attachment${count===1?'':'s'}.</div><button class="btn primary" onclick="home()">Back to Home</button></div>`;
 }
 function photoViewerHtml(issue) {
-  return `<button type="button" class="btn secondary" onclick="viewIssuePhotos('${issue.id}',this)">View Photos</button><div class="issue-photos" style="display:flex;flex-wrap:wrap;gap:12px" aria-live="polite"></div>`;
+  return `<button type="button" class="btn secondary" onclick="viewIssuePhotos('${issue.id}',this)">View Photos / Video</button><div class="issue-photos" style="display:flex;flex-wrap:wrap;gap:12px" aria-live="polite"></div>`;
 }
 async function appendPhotoBatch(box,bucket,paths) {
   if(!paths.length) return;
@@ -1003,24 +1094,28 @@ async function appendPhotoBatch(box,bucket,paths) {
 
 async function viewIssuePhotos(issueId, button) {
   const box = button.nextElementSibling;
-  button.disabled = true; box.textContent = 'Loading photos…';
+  button.disabled = true; box.textContent = 'Loading attachments…';
   try {
     const issue = issues.find(item => item.id === issueId);
     if (!issue) throw new Error('Refresh the issue and try again.');
     const folder = issue.reported_by + '/' + issue.id;
-    const listing = await sb.storage.from('issue-photos').list(folder, {limit:100,sortBy:{column:'created_at',order:'asc'}});
-    if (listing.error) throw listing.error;
+    const [listing,videoListing] = await Promise.all([
+      sb.storage.from('issue-photos').list(folder, {limit:100,sortBy:{column:'created_at',order:'asc'}}),
+      sb.storage.from('issue-videos').list(folder,{limit:100})
+    ]);
+    if (listing.error || videoListing.error) throw listing.error || videoListing.error;
     box.replaceChildren();
     const photos = (listing.data || []).filter(item => item.id);
-    if (!photos.length) box.textContent = 'No original report photos attached.';
-    await appendPhotoBatch(box,'issue-photos',photos.map(photo=>folder+'/'+photo.name));
+    const videos=(videoListing.data || []).filter(item=>item.id);
+    if (!photos.length && !videos.length) box.textContent = 'No original report attachments.';
+    await Promise.all([appendPhotoBatch(box,'issue-photos',photos.map(photo=>folder+'/'+photo.name)),appendVideoButtons(box,'issue-videos',videos.map(video=>folder+'/'+video.name))]);
     const updates = await sb.from('issue_progress_updates').select('*').eq('issue_id',issueId).order('created_at');
     if (updates.error) throw updates.error;
     for (const update of updates.data || []) {
       const card = document.createElement('div'); card.style.width = '100%';
       card.innerHTML = progressUpdateHtml(update); box.append(card);
     }
-  } catch(error) { box.textContent = 'Photos could not be loaded. '+error.message; }
+  } catch(error) { box.textContent = 'Attachments could not be loaded. '+error.message; }
   finally { button.disabled = false; }
 }
 window.addEventListener('beforeunload', event => {
@@ -1037,18 +1132,22 @@ function progressUpdateHtml(update) {
   return `<div class="issue"><strong>Progress update</strong>
     <div class="muted">${escapeProgress(getProfileName(update.author_id))} · ${new Date(update.created_at).toLocaleString()}</div>
     <p style="white-space:pre-wrap">${escapeProgress(update.note)}</p>
-    ${update.photo_names.length ? `<button type="button" class="btn secondary" onclick="viewProgressPhotos('${update.id}',this)">View Progress Photos (${update.photo_names.length})</button><div style="display:flex;flex-wrap:wrap;gap:12px;margin-top:12px" aria-live="polite"></div>` : ''}
+    ${update.photo_names.length ? `<button type="button" class="btn secondary" onclick="viewProgressPhotos('${update.id}',this)">View Progress Photos / Video (${update.photo_names.length})</button><div style="display:flex;flex-wrap:wrap;gap:12px;margin-top:12px" aria-live="polite"></div>` : ''}
   </div>`;
 }
 async function viewProgressPhotos(updateId, button) {
   const box = button.nextElementSibling;
-  button.disabled = true; box.textContent = 'Loading photos…';
+  button.disabled = true; box.textContent = 'Loading attachments…';
   try {
     const {data:update,error} = await sb.from('issue_progress_updates').select('*').eq('id',updateId).single();
     if(error) throw error;
     box.replaceChildren();
-    await appendPhotoBatch(box,'issue-progress-photos',update.photo_names.map(name=>`${update.issue_id}/${update.author_id}/${update.id}/${name}`));
-  } catch(error) { box.textContent='Photos could not be loaded. '+error.message; }
+    const folder=`${update.issue_id}/${update.author_id}/${update.id}/`;
+    await Promise.all([
+      appendPhotoBatch(box,'issue-progress-photos',update.photo_names.filter(name=>!isVideoName(name)).map(name=>folder+name)),
+      appendVideoButtons(box,'issue-progress-videos',update.photo_names.filter(isVideoName).map(name=>folder+name))
+    ]);
+  } catch(error) { box.textContent='Attachments could not be loaded. '+error.message; }
   finally { button.disabled=false; }
 }
 function showProgressForm(issueId) {
@@ -1066,6 +1165,7 @@ function showProgressForm(issueId) {
       <button type="button" class="btn secondary" onclick="document.getElementById('photoGallery').click()">Choose from Gallery</button>
       <input id="photoCamera" type="file" accept="image/jpeg,image/png,image/webp" capture="environment" hidden onchange="selectIssuePhotos(this)">
       <input id="photoGallery" type="file" accept="image/jpeg,image/png,image/webp" multiple hidden onchange="selectIssuePhotos(this)">
+      ${videoPickerHtml()}
       <div id="photoPreviews" style="display:flex;flex-wrap:wrap;gap:12px;margin-top:12px"></div></div>
     <p id="photoProgress" role="status" aria-live="polite"></p>
     <button id="saveProgressButton" type="button" class="btn primary" onclick="saveProgressUpdate()">Save Progress Update</button>
@@ -1089,10 +1189,11 @@ async function saveProgressUpdate() {
     const folder=`${draft.issueId}/${user.id}/${draft.id}`;
     for(let i=0;i<selectedIssuePhotos.length;i++) {
       const photo=selectedIssuePhotos[i]; if(photo.uploaded) continue;
-      message.textContent=`Uploading photo ${i+1} of ${selectedIssuePhotos.length}…`;
-      const result=await sb.storage.from('issue-progress-photos').upload(folder+'/'+photo.name,photo.file,{contentType:photo.file.type,upsert:false});
+      message.textContent=`Uploading attachment ${i+1} of ${selectedIssuePhotos.length}…`;
+      const bucket=isVideoName(photo.name) ? 'issue-progress-videos' : 'issue-progress-photos';
+      const result=await uploadIssueAttachment(bucket,folder+'/'+photo.name,photo.file,message);
       if(result.error) {
-        const check=await sb.storage.from('issue-progress-photos').list(folder,{search:photo.name,limit:10});
+        const check=await sb.storage.from(bucket).list(folder,{search:photo.name,limit:10});
         if(check.error || !(check.data||[]).some(x=>x.name===photo.name)) throw result.error;
       }
       photo.uploaded=true;
@@ -1192,7 +1293,8 @@ async function report() {
         <button type="button" class="btn secondary" onclick="document.getElementById('photoGallery').click()">Choose from Gallery</button>
         <input id="photoCamera" type="file" accept="image/jpeg,image/png,image/webp" capture="environment" hidden onchange="selectIssuePhotos(this)">
         <input id="photoGallery" type="file" accept="image/jpeg,image/png,image/webp" multiple hidden onchange="selectIssuePhotos(this)">
-        <div id="photoPreviews" style="display:flex;flex-wrap:wrap;gap:12px"></div>
+        ${videoPickerHtml()}
+      <div id="photoPreviews" style="display:flex;flex-wrap:wrap;gap:12px"></div>
         <p id="photoProgress" role="status" aria-live="polite"></p>
       </div>
       <button id="submitIssueButton" class="btn primary" onclick="submitIssue()">
@@ -1284,7 +1386,7 @@ async function submitIssue() {
   try { await submitIssueWithPhotos(); }
   catch (error) {
     const message = pendingPhotoIssue
-      ? 'Issue #' + pendingPhotoIssue.issue_number + ' is saved, but some photos could not upload. Keep this page open and tap Retry Photos. ' + error.message
+      ? 'Issue #' + pendingPhotoIssue.issue_number + ' is saved, but some attachments could not upload. Keep this page open and tap Retry Attachments. ' + error.message
       : 'Issue could not be submitted. ' + error.message;
     const progress = document.getElementById('photoProgress');
     if (progress) progress.textContent = message;
@@ -1292,7 +1394,7 @@ async function submitIssue() {
     photoSubmitting = false;
     if (submitButton && submitButton.isConnected) {
       submitButton.disabled = false;
-      submitButton.textContent = pendingPhotoIssue ? 'Retry Photos' : 'Submit Issue';
+      submitButton.textContent = pendingPhotoIssue ? 'Retry Attachments' : 'Submit Issue';
     }
   }
 }
@@ -1737,6 +1839,7 @@ window.showRepairForm = showRepairForm;
 window.completeRepair = completeRepair;
 
 init();
+
 
 
 
